@@ -1,0 +1,30 @@
+=== REPORT ===
+{
+ "pool_requested": [
+  "egg",
+  "butter_stick",
+  "milk",
+  "chicken_breast",
+  "cake",
+  "tupperware"
+ ],
+ "pool_built": [
+  "pool_butter_stick",
+  "pool_cake",
+  "pool_chicken_breast",
+  "pool_egg",
+  "pool_milk",
+  "pool_tupperware"
+ ],
+ "park_400_steps_wall_s": 3.26,
+ "park_max_drift_m": 0.0,
+ "deliver_settle_err_m": {
+  "pool_egg": 0.0,
+  "pool_butter_stick": 0.0,
+  "pool_milk": 0.0001,
+  "pool_chicken_breast": 0.0,
+  "pool_cake": 0.0,
+  "pool_tupperware": 0.0
+ },
+ "note_gravcomp_is_model_field": "body_gravcomp lives in MjModel, so checkpoints must save it alongside sim state"
+}

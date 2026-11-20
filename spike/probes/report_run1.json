@@ -1,0 +1,55 @@
+{
+ "host": {
+  "platform": "macOS-27.2.1-arm64-arm-64bit",
+  "python": "3.11.18"
+ },
+ "task": "LoadFridgeByType",
+ "P1_load_reset": {
+  "ok": true,
+  "build_s": 0.67,
+  "reset_s": 2.84,
+  "action_dim": 12,
+  "control_freq_hz": 20,
+  "lang": "Place the bowl with the lime and mushroom on the top shelf of the fridge. Place the bowl with the steak and fish on the second highest shelf of the fridge.",
+  "n_objects": 6,
+  "wall_s": 3.54
+ },
+ "P2_step_rate": {
+  "ok": true,
+  "steps_per_s_nocam": 58.2,
+  "steps_per_s_cams": 26.2,
+  "realtime_factor_cams_at_20hz": 1.31,
+  "realtime_factor_nocam_at_20hz": 2.91,
+  "wall_s": 14.35
+ },
+ "P3_midepisode_edits": {
+  "ok": true,
+  "obj": "veg_bowl",
+  "obj_dx_after_settle_m": 0.139,
+  "obj_dz_after_settle_m": 0.016,
+  "obj_settled_back_near_start_height": true,
+  "door_fixture": "hingecabinet_2_main_group_1",
+  "door_state_after_open_40steps": {
+   "left_door": 0.951,
+   "right_door": 0.976
+  },
+  "wall_s": 2.75
+ },
+ "P4_persistence": {
+  "ok": true,
+  "idle_steps": 2000,
+  "idle_wall_s": 33.2,
+  "max_obj_drift_m": 0.0201,
+  "objs_drift_gt_1cm": [
+   "vegetable2",
+   "meat1",
+   "meat2"
+  ],
+  "state_dim": 221,
+  "state_change_after_50_random_steps": 7.439,
+  "state_error_after_restore": 0.0,
+  "reset_changes_objects": false,
+  "reset_changes_nbody": true,
+  "wall_s": 40.55
+ }
+}
