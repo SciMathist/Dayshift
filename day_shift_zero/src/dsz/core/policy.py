@@ -28,6 +28,7 @@ class Observation:
     proprio: Sequence[float] = ()
     messages: Sequence[Message] = ()  # new since the last observation
     last_result: SkillResult | None = None
+    state: Mapping[str, Any] | None = None  # full world state; set ONLY in the pi_sym (E1) ablation
 
 
 @dataclass(frozen=True, slots=True)

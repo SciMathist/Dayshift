@@ -116,6 +116,6 @@ class Checkpointable(Protocol):
 class SimBackend(Actuation, Perception, WorldEditor, GroundTruth, Checkpointable, Protocol):
     """Full backend surface. Only the env composition root sees this type."""
 
-    def build(self, fixtures: Sequence[str], pool: Mapping[str, str]) -> None:
-        """Build the scene with `fixtures` and a pool of item id to item type, all parked."""
+    def build(self, fixtures: Mapping[str, str], pool: Mapping[str, str]) -> None:
+        """Build the scene: `fixtures` maps fixture id to kind; `pool` maps item id to type, all parked."""
         ...
