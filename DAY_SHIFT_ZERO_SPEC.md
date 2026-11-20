@@ -79,40 +79,56 @@ The closest work is **WorldLines** (2026): multi-day household traces with resid
 
 ## 5. Scenarios
 
-A scenario is a package under `scenarios/<name>/`:
-- `scenario.yaml` (declarative; the Level 1 spec format);
-- an optional `hooks.py` implementing the `Scenario` protocol for anything YAML can't express (a custom generator, a custom success check).
+A scenario is a **definition** (YAML or dict), plus optional **plugin modules** for behaviour that the built-ins don't cover. The scenario layer (`dsz.scenario`, see its README) materializes it:
 
-```python
-class Scenario(Protocol):
-    def requirements(self) -> CapabilitySet: ...                         # checked against the manifest
-    def generate(self, seed: int, horizon: Horizon, rng: RngStreams) -> Instance: ...
-    def success(self, trace: Trace, world: WorldView) -> Verdict: ...     # binary + graded
-    def oracle(self) -> Policy: ...                                       # scripted solver (V1)
+```
+definition ──parse──► ScenarioSpec ──compile──► Scenario ──generate(seed, N)──► Instance ──materialize──► Run
 ```
 
-The shape of `scenario.yaml`:
+- **Parse:** checks structure and reports every problem at once.
+- **Compile:**
+  - imports `plugins:` and resolves plugin names;
+  - validates module and actor parameters;
+  - checks capabilities against the platform manifest;
+  - checks references in a 1-day probe instance.
+- **Generate:** a plugin generator. The built-in one is `template` and needs no code. Day *d* is identical in every horizon (prefix property).
+- **Materialize:** wires backend, items, events (exogenous events, fact reveals, work tickets), actors, modules, processes, the work tracker, the success check, skills and observations into a `Run`.
+
+The definition names plugins and gives them parameters:
 
 ```yaml
-id: wedding_cake_contract
-objective: "Deliver a 5-tier wedding cake matching the client's final brief by day 10, 15:00"
-horizon: {type: deadline, days: 10}          # or {type: continuous, days: N}
-actors: [{role: client}, {role: supplier, lead_time_days: [1, 2]}, {role: coworker}]
-modules:
-  facts:       {channel: client, examples: ["groom has an almond allergy", "no fresh flowers on top tier"]}
-  hidden_state:{containers: [fridge, freezer, cabinets]}
-  lead_time:   {processes: [bake, cool, chill, freeze, decorate]}
-  resources:   {perishables: [eggs, butter, cream], reorder: true}
-  drift:       {goal_change: {p_per_day: 0.15, kinds: [flavor, tier_count, color]}, equipment: [oven_temp_drift]}
-  compounding: {fragile: [tier, sugar_flower], irrecoverable: [dropped_tier, allergen_contamination, missed_deadline]}
-work:          # a process graph; the generator samples quantities, timing and variants
-  - {id: sugar_flowers, process: decorate, earliest_day: 1, storage: dry_cabinet}
-  - {id: tiers,         process: bake, count: "{tiers}", then: [cool, chill]}
-  - {id: assembly,      process: assemble, needs: [tiers, sugar_flowers, frosting], day: 10}
+id: deli
+objective: "Pack and dispatch lunch boxes on time."
+horizon: {type: continuous, days: 3}            # or deadline
+fixtures: {fridge: fridge, counter: counter, dispatch: dispatch_shelf, inbox: delivery_shelf}
+modules: {spoilage: {}, wear: {fixtures: [fridge], per_day: 0.05}}
+actors: [{role: supplier, name: acme, fixture: inbox, lead_time_days: [1, 2]}]
+generator:
+  name: template
+  params:
+    initial: [{type: cheese, count: 4, at: fridge}]
+    pool: {cheese: 12}
+    subjects: [c01, c02]
+    facts: [{id: c01_dairy, subject: c01, text: "c01 cannot eat dairy.", at: {day: 0, minute: 500},
+             constraint: {exclude_allergens: [dairy]}}]          # hidden constraint on later work (M1)
+    work: [{kind: order, per_day: [3, 6], window: [600, 1200], lead: [45, 90], collect: true,
+            variants: [{deliver: {item_type: meal_box, stages: [packed], at: dispatch},
+                        ticket: "Order {work_id} for {subject} by {due}."}]}]
+    events: [{kind: relocate, payload: {item_type: cheese, to: counter}, per_day: [0, 1], window: [0, 1440]}]
 success:
-  binary: "delivered_by_deadline and matches_final_brief and no_allergen and structurally_intact"
-  graded: [brief_match_score, waste_cost, on_time_milestones]
+  criteria:
+    work_completion: {params: {min_on_time: 0.9}}
+    no_violations: {}
+    waste: {required: false, weight: 0.5}
+policies: {oracle: deli_oracle, controls: [noop]}
+plugins: [scenarios.deli.plugins]
 ```
+
+**Success** is a composite of `Criterion` plugins:
+- **Binary:** every required criterion passes.
+- **Graded:** the weighted mean of the criterion scores.
+
+Work completion is a generic `deliver` predicate: item type, stages, fixture, allergens to exclude, deadline, and optional courier collection.
 
 **Reference scenarios**
 
