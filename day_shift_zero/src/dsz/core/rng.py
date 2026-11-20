@@ -34,6 +34,14 @@ class RngStreams:
             self._streams[name] = np.random.default_rng(self._derive(name))
         return self._streams[name]
 
+    def indexed(self, name: str, index: int) -> np.random.Generator:
+        """Return a fresh generator for (`name`, `index`), independent of how often it was asked for.
+
+        Use it when draws must not depend on call pattern, e.g. one generator per dynamics
+        tick, so agent-dependent time splits cannot change exogenous randomness.
+        """
+        return np.random.default_rng(self._derive(f"{name}#{index}"))
+
     def _derive(self, name: str) -> int:
         """Derive a stable 64-bit stream seed from the root seed and the stream name."""
         digest = hashlib.sha256(f"{self._seed}:{name}".encode()).digest()
