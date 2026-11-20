@@ -1,4 +1,4 @@
-"""Scenario contract and the instance it generates.
+"""Scenario contract, the instance it generates, and the generator plugin contract.
 
 A scenario is a task definition composed from the platform's capability vocabulary.
 The platform never imports a specific scenario (open/closed).
@@ -6,15 +6,16 @@ The platform never imports a specific scenario (open/closed).
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Mapping, Protocol, Sequence, runtime_checkable
 
-from dsz.core.types import CapabilitySet, Horizon, Location, SimMinutes, Verdict
+from dsz.core.types import CapabilitySet, Horizon, Location, SimMinutes
 
 if TYPE_CHECKING:
     from dsz.core.policy import Policy
     from dsz.core.rng import RngStreams
-    from dsz.core.sim import GroundTruth
+    from dsz.core.success import SuccessCheck
     from dsz.world.state import WorldState
 
 
@@ -46,12 +47,18 @@ class Fact:
     revealed_at: SimMinutes
     channel: str
     text: str
+    sender: str = "manager"
     needed_by: tuple[str, ...] = ()  # ids of work items that depend on it
 
 
 @dataclass(frozen=True, slots=True)
 class WorkItem:
-    """A unit of requested work (an order, a contract milestone) with a deadline."""
+    """A unit of requested work (an order, a contract milestone) with a deadline.
+
+    `spec` holds the completion predicate under "deliver" (see dsz.scenario.work) and the
+    ticket the robot receives under "ticket". Hidden constraints from facts are already
+    merged into "deliver" but never appear in the ticket.
+    """
 
     work_id: str
     kind: str
@@ -69,11 +76,13 @@ class Instance:
     seed: int
     horizon: Horizon
     objective: str
-    fixtures: tuple[str, ...]
+    fixtures: Mapping[str, str]  # fixture id -> kind
     items: tuple[InitialItem, ...]
     facts: tuple[Fact, ...]
     work: tuple[WorkItem, ...]
     events: tuple[ScheduledEvent, ...]
+    modules: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    actors: tuple[Mapping[str, Any], ...] = ()
     params: Mapping[str, Any] = field(default_factory=dict)
 
     def prefix(self, days: int) -> Instance:
@@ -95,8 +104,40 @@ class Instance:
             facts=tuple(f for f in self.facts if f.revealed_at < end),
             work=tuple(w for w in self.work if w.released_at < end),
             events=tuple(e for e in self.events if e.t < end),
+            modules=self.modules,
+            actors=self.actors,
             params=self.params,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationContext:
+    """Scenario-level data a generator needs, independent of how the scenario was defined."""
+
+    scenario_id: str
+    objective: str
+    fixtures: Mapping[str, str]
+    modules: Mapping[str, Mapping[str, Any]]
+    actors: tuple[Mapping[str, Any], ...]
+    params: Mapping[str, Any]
+
+
+class InstanceGenerator(ABC):
+    """Sample an Instance from a scenario definition (Factory pattern).
+
+    To add one: subclass, set `name`, implement `requires` and `generate`, register in
+    `GENERATORS`. Generation must use only the given RNG streams.
+    """
+
+    name: ClassVar[str]
+
+    @abstractmethod
+    def requires(self, params: Mapping[str, Any]) -> CapabilitySet:
+        """Return the capabilities that instances generated from `params` use."""
+
+    @abstractmethod
+    def generate(self, ctx: GenerationContext, seed: int, horizon: Horizon, rng: RngStreams) -> Instance:
+        """Return a reproducible instance."""
 
 
 @runtime_checkable
@@ -113,14 +154,14 @@ class Scenario(Protocol):
         """Sample a reproducible instance for `seed` and `horizon`."""
         ...
 
-    def success(self, instance: Instance, world: WorldState, truth: GroundTruth) -> Verdict:
-        """Judge a finished run: binary pass plus graded score."""
+    def success_check(self, instance: Instance) -> SuccessCheck:
+        """Return a fresh success check for one run of `instance`."""
         ...
 
-    def oracle(self, instance: Instance) -> Policy:
-        """Return the scripted solver for `instance` (V1 solvability)."""
+    def oracle(self, instance: Instance, world: WorldState) -> Policy:
+        """Return the scripted solver (V1). It may read `world` (evaluator-side)."""
         ...
 
-    def negative_controls(self, instance: Instance) -> Sequence[Policy]:
+    def negative_controls(self, instance: Instance, world: WorldState) -> Sequence[Policy]:
         """Return trivial policies that must fail (no-op, ignores hidden state, never recovers)."""
         ...

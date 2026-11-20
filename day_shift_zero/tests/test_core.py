@@ -50,7 +50,7 @@ def test_instance_prefix_property():
     day = MINUTES_PER_DAY
     inst = Instance(
         scenario_id="s", seed=1, horizon=Horizon(HorizonType.CONTINUOUS, 3), objective="o",
-        fixtures=("counter",), items=(),
+        fixtures={"counter": "counter"}, items=(),
         facts=(Fact("f1", 10, "manager", "x"), Fact("f2", 2 * day + 5, "manager", "y")),
         work=(WorkItem("w1", "order", 0, 100), WorkItem("w2", "order", day + 1, day + 100)),
         events=(ScheduledEvent(5, "delivery"), ScheduledEvent(2 * day, "relocate")),
