@@ -17,9 +17,10 @@ def bus() -> RecordingBus:
 
 @pytest.fixture
 def world(bus: RecordingBus) -> WorldState:
-    """Return a world with fridge, freezer, counter, oven, one cabinet and a trash bin."""
+    """Return a world with fridge, freezer, counter, oven, cabinet, trash and delivery shelf."""
     w = WorldState(bus)
     for fid, kind in [("fridge", "fridge"), ("freezer", "freezer"), ("counter", "counter"),
-                      ("oven", "oven"), ("cabinet_1", "cabinet"), ("trash", "trash")]:
+                      ("oven", "oven"), ("cabinet_1", "cabinet"), ("trash", "trash"),
+                      ("delivery_shelf", "delivery_shelf")]:
         w.add_fixture(fid, kind)
     return w
