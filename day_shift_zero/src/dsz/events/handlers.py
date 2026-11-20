@@ -67,7 +67,9 @@ class DeliveryEvent(EventHandler):
 class RelocateEvent(EventHandler):
     """Move an item without the robot (a co-worker tidies up). Unobserved unless `observable`.
 
-    Payload: item, to (fixture id); optional expect_at (fixture id the item must be in).
+    Payload: to (fixture id) and either item (id) or item_type (the first such item by id);
+    optional expect_at (fixture id the item must be in). Generators use item_type, because
+    where items are depends on the agent.
     """
 
     kind = "relocate"
@@ -79,7 +81,11 @@ class RelocateEvent(EventHandler):
     def apply(self, ctx: EventContext, event: ScheduledEvent) -> None:
         """Move the item if it is in the world, not held, and where expected."""
         p = event.payload
-        loc = ctx.world.item(p["item"]).location
+        iid = p.get("item") or self._pick(ctx, p)
+        if iid is None:
+            _noop(ctx, event, "no matching item")
+            return
+        loc = ctx.world.item(iid).location
         if loc.kind is not LocationKind.FIXTURE:
             _noop(ctx, event, f"item is {loc.kind.value}")
             return
@@ -87,9 +93,33 @@ class RelocateEvent(EventHandler):
             _noop(ctx, event, "item not where expected")
             return
         try:
-            ctx.editor.move(p["item"], Location.at(p["to"]))
+            ctx.editor.move(iid, Location.at(p["to"]))
         except ValueError as e:  # destination full
             _noop(ctx, event, str(e))
+
+    @staticmethod
+    def _pick(ctx: EventContext, p: Mapping[str, Any]) -> str | None:
+        """Return the first item of `item_type` (at `expect_at`, if given) that is not already at `to`."""
+        for item in ctx.world.items_of_type(p["item_type"], LocationKind.FIXTURE):
+            if item.location.fixture != p["to"] and (not p.get("expect_at") or item.location.fixture == p["expect_at"]):
+                return item.item_id
+        return None
+
+
+@register_event
+class WorkReleaseEvent(EventHandler):
+    """Hand a work ticket to the robot (an order, a milestone request).
+
+    Payload: work_id, channel, sender, text. The ticket never contains hidden constraints.
+    """
+
+    kind = "work_release"
+
+    def apply(self, ctx: EventContext, event: ScheduledEvent) -> None:
+        """Post the ticket and record the release evaluator-side."""
+        p = event.payload
+        ctx.channels.post(Message(ctx.world.now, p["channel"], p["sender"], p["text"]))
+        ctx.bus.publish(DomainEvent(ctx.world.now, "work.released", {"work": p["work_id"]}))
 
 
 @register_event
