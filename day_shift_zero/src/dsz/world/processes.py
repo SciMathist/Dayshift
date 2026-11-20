@@ -38,6 +38,13 @@ class ProcessRunner:
                                       {"process": process, "fixture": fixture_id, "items": list(item_ids)}))
         return None
 
+    def start_in(self, process: str, fixture_id: str) -> str | None:
+        """Start `process` on every item in `fixture_id` (the ProcessControl role used by skills)."""
+        if fixture_id not in self._world.fixtures:
+            return f"unknown fixture '{fixture_id}'"
+        items = tuple(i.item_id for i in self._world.items_at(fixture_id))
+        return self.start(process, fixture_id, items)
+
     def advance(self, t: SimMinutes) -> None:
         """Resolve every process at time `t`: abort, complete, or apply overrun."""
         for proc in list(self._world.processes):
