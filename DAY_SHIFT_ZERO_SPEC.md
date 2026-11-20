@@ -62,7 +62,11 @@ The closest work is **WorldLines** (2026): multi-day household traces with resid
 - **Object pool.** Deliveries and new items come from a pool of objects parked off-scene, because the MuJoCo model is compiled once. Parked objects float under gravity compensation, and a delivery restores a resting pose recorded at build time. Verified in spike run 2.
 - **Actors.** Clients, customers, a manager, suppliers and co-workers. Each communicates through channels (messages, order tickets, phone) and can act on the world (move items, consume them, deliver them).
 
-**Dynamics modules.** These are the six difficulty mechanisms, made reusable. A scenario switches modules on and sets their parameters.
+**The six difficulty mechanisms**, made reusable. Each is built from one or more of the plugin types below, and each plugin type has its own ABC and registry. A new dynamic is a new class plus a registration; no platform code changes. The mapping is in `dsz/dynamics/README.md`.
+- **`DynamicsModule`:** continuous change driven only by time, independent of the agent (spoilage, wear). Its random draws are indexed by tick, so the agent's timing can't change them.
+- **`EventHandler`:** discrete scheduled events, one Command per kind (message, delivery, relocate, consume, door_left_open, equipment_fault, goal_change).
+- **`Actor`:** reactions to the agent (a supplier fulfils an order after a seeded lead time).
+- **`ProcessRunner`:** lead-time processes (bake, chill, proof, assemble).
 
 | # | Module | What it provides | Predicate |
 |---|---|---|---|
