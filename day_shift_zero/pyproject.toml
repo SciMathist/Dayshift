@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "day-shift-zero"
+version = "0.0.1"
+description = "Day Shift Zero: a task-agnostic kitchen platform for multi-day, long-horizon embodied agent evaluation"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy==2.2.5",
+    "pyyaml>=6.0",
+    "gymnasium>=1.0",
+]
+
+[project.optional-dependencies]
+# Embodied backend. robosuite and robocasa are installed from pinned git commits (see docker/).
+robocasa = ["mujoco==3.3.1"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dsz"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F/W: correctness and style; I: import order; D1: every module, class, function and method has a docstring.
+select = ["E", "F", "W", "I", "D1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
