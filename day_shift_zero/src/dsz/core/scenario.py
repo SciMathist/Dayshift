@@ -94,6 +94,11 @@ class Instance:
         if days > self.horizon.days:
             raise ValueError("prefix longer than instance")
         end = Horizon(self.horizon.type, days).end
+        work = tuple(w for w in self.work if w.released_at < end)
+        kept = {w.work_id for w in work}
+        facts = tuple(Fact(f.fact_id, f.revealed_at, f.channel, f.text, f.sender,
+                           tuple(w for w in f.needed_by if w in kept))
+                      for f in self.facts if f.revealed_at < end)
         return Instance(
             scenario_id=self.scenario_id,
             seed=self.seed,
@@ -101,8 +106,8 @@ class Instance:
             objective=self.objective,
             fixtures=self.fixtures,
             items=self.items,
-            facts=tuple(f for f in self.facts if f.revealed_at < end),
-            work=tuple(w for w in self.work if w.released_at < end),
+            facts=facts,
+            work=work,
             events=tuple(e for e in self.events if e.t < end),
             modules=self.modules,
             actors=self.actors,

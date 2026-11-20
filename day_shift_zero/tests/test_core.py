@@ -64,6 +64,19 @@ def test_instance_prefix_property():
         inst.prefix(4)
 
 
+def test_prefix_prunes_fact_links_to_dropped_work():
+    """A fact in a shorter prefix only lists work that the prefix still contains."""
+    day = MINUTES_PER_DAY
+    inst = Instance(
+        scenario_id="s", seed=1, horizon=Horizon(HorizonType.CONTINUOUS, 2), objective="o",
+        fixtures={"counter": "counter"}, items=(),
+        facts=(Fact("f1", 10, "manager", "x", needed_by=("w1", "w2")),),
+        work=(WorkItem("w1", "order", 20, 100), WorkItem("w2", "order", day + 1, day + 100)),
+        events=(),
+    )
+    assert inst.prefix(1).facts[0].needed_by == ("w1",)
+
+
 def test_location_helpers():
     """Fixture and held locations are in the world; parked and discarded are not."""
     assert Location.at("fridge", "shelf_1").in_world
