@@ -88,6 +88,7 @@ class WorldState:
         self.fixtures: dict[str, Fixture] = {}
         self.processes: list[ActiveProcess] = []
         self.now: SimMinutes = 0
+        self.robot_at: str | None = None  # fixture whose approach pose the robot occupies
 
     # ---- construction -------------------------------------------------------------------
     def add_fixture(self, fixture_id: str, kind: str) -> Fixture:
@@ -140,6 +141,12 @@ class WorldState:
     def fixtures_of_kind(self, kind: str) -> list[Fixture]:
         """Return all fixtures of `kind`."""
         return [f for f in self.fixtures.values() if f.kind == kind]
+
+    def items_of_type(self, item_type: str, kind: LocationKind | None = None) -> list[Item]:
+        """Return items of `item_type`, optionally only those with location kind `kind`, sorted by id."""
+        out = [i for i in self.items.values()
+               if i.item_type == item_type and (kind is None or i.location.kind is kind)]
+        return sorted(out, key=lambda i: i.item_id)
 
     # ---- changes ------------------------------------------------------------------------
     def move(self, item_id: str, to: Location, cause: str) -> None:
