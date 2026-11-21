@@ -1,13 +1,13 @@
 # Long-Horizon Task Spec
 
-Version 1.3, 2026-11-22. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed. Your instructions are in `scenarios/AGENTS.md`.
+Version 1.4, 2026-11-22. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed. Your instructions are in `scenarios/AGENTS.md`.
 
 **How to use this file**
 
 | You are | Read |
 |---|---|
 | Author | All sections |
-| Reviewer | All sections. Give a verdict (pass, improve or discard). Cite a rule ID (P, MR, CR) in each finding |
+| Reviewer | All sections. Give a verdict (pass, improve or discard). Cite a rule ID (P, MR, CR, OC) in each finding |
 
 **Contents**
 1. Terms
@@ -37,6 +37,7 @@ Each term has one meaning in this file.
 | Symbolic run | The same instance, skills and failure rates. The policy gets s_t instead of the view |
 | Track | The action space a policy uses: skill level (skill calls) or low level (12-dim control at 20 Hz). `project.md` section 6 defines both |
 | Skill backend | How a skill runs: scripted (IK motion planning) or learned (a policy per atomic task) |
+| Recipe | The abstract steps that produce one work item, such as marinate → cook → pass. It names processes and stages, not items, times or skill calls |
 | Exogenous event | A change that the robot does not cause: relocate, consume, delivery, fault, door left open, goal change |
 | Cue | A change in o_t that shows an event or a failure. A clock time is not a cue |
 | Physical consequence | An object, a place and a body action: find, tell apart, open, check, carry, unload or recover |
@@ -169,19 +170,33 @@ Until the verifier exists, the reviewer applies these checks by reading the file
 
 ## 6. Oracle, controls and criteria
 
-**Oracle**
-- It runs on the evaluator side. It can read the instance and ground truth to plan.
-- It finds recoverable failures only through o_t (CR10).
-- It is deterministic. Its randomness comes from `RngStreams` only.
-- Its skill trace is the oracle plan for the diagnostic ablation in `project.md` section 8.
+**Oracle.** It runs on the evaluator side. It plans from the instance and ground truth. At each decision its next step is the advice for the oracle-plan ablation (`project.md` section 8).
+
+It has three reusable parts:
+
+| Part | Job | Static or closed-loop |
+|---|---|---|
+| Recipe | Regress from each work item's deliver stages through the process specs to its recipe | Static |
+| Executor | Belief (ground truth), a greedy scheduler (latest start time first, no search) and a monitor that replans after a failure | Closed-loop |
+| Skill compiler | Map each recipe step to skill calls | Static |
 
 | Scenario | Oracle | Written by |
 |---|---|---|
-| Built-in plugins only | The generic oracle. It is greedy. For each work item it follows the stages back, finds the items, runs the processes, moves the items and replans after a failed skill | The platform, once for all scenarios |
-| Has `plugins.py` | `scenarios/<id>/oracle.py` | A separate oracle agent, after the definition is final |
+| Built-in plugins only | The generic oracle | The platform, once for all scenarios |
+| Plugin processes that the recipe part cannot regress | The generic oracle plus a `recipe:` block in the definition | The oracle agent |
+| Plugin behaviour that needs its own handling | `scenarios/<id>/oracle.py`: a subclass that overrides only the scheduler or the goals | The oracle agent |
 
-- Authors do not write an oracle or a control.
+- Authors do not write an oracle, a recipe or a control.
+- The oracle agent starts after the definition is final. It works in the scenario loop (`project.md` section 5) against stage S4. After 3 failed rounds, reject the scenario.
 - If the generic oracle fails, the scenario needs scheduling. Reject it (section 3).
+
+**Oracle checks.** The verifier accepts an oracle only if CR10 holds and all of these are true:
+
+| ID | Rule |
+|---|---|
+| OC1 | It acts only through skill calls. It never edits the world |
+| OC2 | The same seed gives the same trace. Its randomness comes from `RngStreams` only |
+| OC3 | It uses no search or optimization. An override changes only the scheduler's priority or the goals |
 
 **Controls.** Each control is the oracle with one fixed change. All must fail.
 
@@ -203,7 +218,7 @@ Run the stages in order. Stop at the first stage that fails.
 | S1 Parse | Structure | Verifier |
 | S2 Compile | Plugins, parameters, capabilities, references in a 1-day probe, ID rules | Verifier |
 | S3 Claims | CR1–CR15 and MR1–MR5, as far as the files show | Reviewer (later: the verifier, for kind A) |
-| S4 Certify | H1, M1, R1, C1, V1 on the symbolic backend, every certified pair | Verifier |
+| S4 Certify | OC1–OC3, then H1, M1, R1, C1, V1 on the symbolic backend, every certified pair | Verifier |
 | S5 Embodiment | E1 | Verifier |
 | S6 Review | Definition, `DESIGN.md` and report | Person |
 
@@ -222,4 +237,5 @@ These limits block some claims now. Do not claim what they block.
 | Supplier orders take the lowest free pool ID, also IDs that a scheduled delivery needs | Mixing orders and scheduled deliveries (CR11) |
 | `DeliveryEvent` can crash when the fixture is full (reported, not reproduced) | Deliveries to a full fixture |
 | The import path for `plugins:` modules is not specified | Running plugins outside the repo root |
+| The generic oracle and the `recipe:` field are not built yet | Scenarios without their own `oracle.py` |
 

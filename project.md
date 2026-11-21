@@ -154,8 +154,8 @@ Each role gets only the context listed:
 | Author | `AGENTS.md` and the task spec | `scenarios/<id>/` |
 | Verifier (`dsz verify`) | The scenario folder | `report.json` |
 | Reviewer | The task spec and the scenario folder | Verdict (pass, improve, discard) and findings with rule IDs |
-| Oracle agent | The task spec and the final folder | `oracle.py`, for scenarios with plugins only |
-| Orchestrator | — | Sends verifier and reviewer output to the author word for word |
+| Oracle agent | The task spec and the final folder | A `recipe:` block or `oracle.py`, only where the generic oracle cannot derive the recipe |
+| Orchestrator | — | Sends verifier and reviewer output to the author, and verifier output to the oracle agent, word for word |
 | Person | Everything | The merge decision |
 
 The loop:
@@ -164,7 +164,8 @@ The loop:
 3. The orchestrator sends both outputs to the author.
 4. The author improves the scenario, or discards it and starts again with a new ID.
 5. Stop when both checks pass, or after 3 rounds (then discard).
-6. A passing scenario goes to human review as a pull request.
+6. If the generic oracle cannot derive a recipe, the oracle agent fills the gap. The verifier checks the oracle at stage S4. Stop when it passes, or after 3 rounds (then discard the scenario).
+7. A passing scenario goes to human review as a pull request.
 
 Verifier contract:
 - `dsz verify <dir> [--tier fast|full] [--seeds N] [--horizon D] [--json PATH]`. `fast` runs stages S1–S4; `full` adds S5.
@@ -220,7 +221,7 @@ Every instance must pass the predicates H1, M1, R1, C1, V1 and E1. `LONG_HORIZON
 - adaptive vs. plan-once (C1);
 - recovery-aware vs. failure-blind (R1);
 - scripted vs. learned skill backend (section 6): the gap isolates motor failure from planning failure;
-- own plan vs. oracle plan: the evaluator gives the policy the correct skill sequence. A large gain means planning was the bottleneck; no gain means execution was.
+- own plan vs. oracle plan: at each decision the evaluator gives the policy the oracle's next step for the current state. A large gain means planning was the bottleneck; no gain means execution was.
 
 The symbolic and oracle-plan ablations give the policy evaluator-derived data, so they are diagnostics only (principle 6).
 
