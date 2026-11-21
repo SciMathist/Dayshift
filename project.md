@@ -1,20 +1,15 @@
-# Day Shift Zero: Environment Design Spec
+# Day Shift Zero: Project
 
-Status: draft v0.2, 2026-11-21. Parent document: `LONG_HORIZON_EMBODIED_PROJECT.md` (the predicates and working rules there still apply).
-v0.2: the environment is now a task-agnostic kitchen **platform**, and long-horizon work plugs in as **scenarios** (sections 3–5).
+Status: draft v0.3, 2026-11-22. Parent document: `LONG_HORIZON_EMBODIED_PROJECT.md` (the predicates and working rules there still apply).
+v0.3: measurement is policy-agnostic. The task input is a goal, tracks follow the action space, and skills have two backends (sections 2, 6, 8).
 
 ## 1. What it is
 
 Day Shift Zero tests how a robot handles real-life long-horizon work that spans days. A robot works in one persistent kitchen with **no resets** for the length of a scenario. Example scenarios: run a cloud kitchen for N days, or deliver a five-tier wedding cake on a 10-day contract. The kitchen stays the same. What the scenario defines is the objective, the people involved, the work and the events.
 
-**Definition.** A long-horizon embodied task requires a robot to carry out many dependent actions over an extended period in a persistent, changing world. To succeed, the robot must:
-- remember what it did and what it was told;
-- notice and recover from its own failures before they compound;
-- keep up with a world that changes without it.
+**Definition.** `LONG_HORIZON_TASK_SPEC.md` formally defines a long-horizon embodied task and the certification predicates. Section 5 explains how scenarios are authored.
 
-The difficulty has to come from having a body, not only from planning.
-
-**Positioning.** Existing long-horizon embodied benchmarks chain subtasks inside episodes that reset: CALVIN, LIBERO-10, BEHAVIOR-1K, RoboCasa365 composites, Habitat rearrangement. Memory and lifelong-navigation benchmarks add some recall across episodes:
+**Positioning.** Existing long-horizon embodied benchmarks chain subtasks inside episodes that reset: CALVIN, LIBERO-10, BEHAVIOR-1K, RoboCasa365 composites (a step-list instruction per task; median demo 46 s, longest 166 s), Habitat rearrangement. Memory and lifelong-navigation benchmarks add some recall across episodes:
 - FindingDory, RoboMME and EmbodiedMemory-Bench test memory.
 - LiSoNav-COL and EvoNav-Bench move objects between episodes.
 
@@ -28,7 +23,9 @@ The closest work is **WorldLines** (2026): multi-day household traces with resid
 3. **Every instance is certified.** Every scenario instance passes the same predicate checks (section 7) or is resampled. A scenario that can't produce certified instances is rejected, no matter how interesting it sounds.
 4. **Generation is code, seeded and reproducible.** Instances are sampled from the scenario definition by a deterministic program. Any natural-language wording is generated once per seed, cached and frozen. Exogenous events come from their own random stream and don't depend on the agent.
 5. **Prefix property.** For a fixed seed, a shorter horizon is a prefix of a longer one.
-6. **Evaluator-only state stays hidden.** Ground truth, the event log and success labels never reach the policy.
+6. **Evaluator-only state stays hidden.** Ground truth, the event log and success labels never reach the policy. The only exceptions are the diagnostic ablations in section 8, which never count as scores.
+7. **Difficulty comes only from embodiment.** Each difficulty has a physical consequence, and parametric choices don't count (`LONG_HORIZON_TASK_SPEC.md` section 3). E1 (section 7) rejects an instance that breaks this.
+8. **The policy is a black box.** The platform fixes the task, the interface and the measurement. A policy is anything behind `Policy.reset` and `Policy.act`. Every score and diagnostic reads world state and traces, never policy internals, so no metric depends on the model type.
 
 ## 3. Architecture: platform vs. scenario
 
@@ -138,40 +135,71 @@ Work completion is a generic `deliver` predicate: item type, stages, fixture, al
 | **Wedding cake contract** | Deadline, 10 days | Long lead-time process graph, a fragile final assembly, brief changes partway through, early prep stored for days |
 
 Guardrails for any scenario:
-- It must not collapse into abstract scheduling (fails E1) or rely on tickets that can be re-read (fails M1). Certification (section 7) enforces this.
+- It must not rely on tickets that can be re-read (fails M1, section 7).
+- The cloud-kitchen objective above uses demand forecasting, stock reordering and margin, which are parametric (principle 7). Rewrite it before the scenario is certified.
 - Volume stays within what one robot can do at simulation speed.
+
+**Scenario authoring.** Agents and people write scenarios inside the repository, as with any coding agent. Three files share the work:
+
+| File | Job | Reader |
+|---|---|---|
+| `LONG_HORIZON_TASK_SPEC.md` | Defines a valid task: properties, memory rules, claim rules, oracle, stages | Author and reviewer agents |
+| `day_shift_zero/scenarios/AGENTS.md` | The author's procedure | Author agent |
+| `project.md` (this file) | Explains the project | People |
+
+Each role gets only the context listed:
+
+| Role | Context | Output |
+|---|---|---|
+| Author | `AGENTS.md` and the task spec | `scenarios/<id>/` |
+| Verifier (`dsz verify`) | The scenario folder | `report.json` |
+| Reviewer | The task spec and the scenario folder | Verdict (pass, improve, discard) and findings with rule IDs |
+| Oracle agent | The task spec and the final folder | `oracle.py`, for scenarios with plugins only |
+| Orchestrator | — | Sends verifier and reviewer output to the author word for word |
+| Person | Everything | The merge decision |
+
+The loop:
+1. The author writes the scenario.
+2. The verifier and the reviewer check it.
+3. The orchestrator sends both outputs to the author.
+4. The author improves the scenario, or discards it and starts again with a new ID.
+5. Stop when both checks pass, or after 3 rounds (then discard).
+6. A passing scenario goes to human review as a pull request.
+
+Verifier contract:
+- `dsz verify <dir> [--tier fast|full] [--seeds N] [--horizon D] [--json PATH]`. `fast` runs stages S1–S4; `full` adds S5.
+- It writes `report.json`: stage results, rule or predicate IDs, evidence (seed, horizon, day, work item) and a fix hint.
+- Exit codes: 0 pass, 1 fail, 2 error. It is deterministic, read-only and contains no LLM.
+
+Open items:
+- the `difficulty:` schema for automatic claim checks;
+- the `certify` package, the generic oracle, the derived controls and the hedge library;
+- E1 measurement and the reference agents;
+- frozen thresholds and seed list;
+- the CI path check for scenario pull requests.
 
 ## 6. Interface
 
 - **Split process.** The environment runs as a server in a pinned container (assets mounted as a volume; they are 23 GB). API: `reset(scenario, seed, horizon)`, `observe()`, `step(action)`, `close()`. The environment is also available as a Gymnasium env for LeRobot tooling.
-- **Model agnostic: the environment and the model are separate.**
+- **The environment and the model are separate (principle 8).**
   - The env container holds no model code and no model dependencies.
   - The wire API (`dsz.api`) is the only contract.
-  - Adapters live in a separate client package (`clients/dsz_client`) that runs anywhere and never imports env internals. There is one adapter per model type:
-    - VLA / LeRobot policy
-    - VLM with harness
-    - agent as policy
-    - world action model (format still to be defined)
+  - Adapters live in a separate client package (`clients/dsz_client`) that runs anywhere and never imports env internals. There is one adapter per model type: VLA / LeRobot policy, VLM with harness, agent as policy, world action model (WAM). An adapter converts format only, never content.
   - The oracle and the negative controls are evaluator-side, so they run in-process through `core.Policy`. Models always connect through the API.
-- **Two action spaces, one verifier behind both:**
-  - low level: the native 12-dim RoboCasa control at 20 Hz;
-  - skill level: `navigate_to`, `open/close`, `pick`, `place`, `start_process(process, fixture)`, `look`, `wait`, `order`, `say`.
+- **The task input is a goal, never a step list.** `TaskBrief.objective` states the goal. Work and facts arrive on channels. Every model type in a track gets the same input.
+  - RoboCasa instead passes each policy one fixed step-list instruction (`ep_meta["lang"]`, e.g. "Pick the mug from the cabinet, place it under the coffee machine dispenser, and press the start button.").
+  - At multi-day horizons a step list gives away what we measure: what to do, in what order and when.
+- **Two tracks, one per action space.** They are scored separately and never merged. One verifier is behind both.
+  - **Skill level:** the policy decomposes the goal and calls `navigate_to`, `open/close`, `pick`, `place`, `start_process(process, fixture)`, `look`, `wait`, `order`, `say`. Each motor skill call matches one RoboCasa atomic task, the vocabulary RoboCasa uses for its subtask labels (`robocasa/utils/subtask_labeling/subtask_bank.py`). `look`, `wait`, `order` and `say` are not motor skills.
+  - **Low level:** the native 12-dim RoboCasa control at 20 Hz. A flat VLA or WAM runs here. Failing a full scenario is a valid result, not a design flaw.
+- **Skill backends.** Each motor skill has two interchangeable backends: **scripted** (IK motion planning) and **learned** (a policy per atomic task, such as a VLA). Both run in the simulator and can fail. Nothing teleports.
 - **Grounding.** The agent can name fixtures. For objects it picks an index from a detection list built from the current view only (the default) or gives a pixel point (a switch). There are no global object IDs.
 - **Skill feedback comes from sensors only.** Skills return gripper width, contact and a post-action image. They never return a success flag.
 - **Observation.** Three RGB views at 256², rendered only when the agent makes a decision; proprioception; the clock; channel messages. The harness memory policy is fixed and logged per run.
 
 ## 7. Instance certification (any scenario, per seed and horizon)
 
-| Check | Rule |
-|---|---|
-| H1 | Oracle length L ≥ θ_L, and dependency depth D ≥ θ_D at the skill level |
-| M1 | At least one fact stated only on a channel (not encoded in the world) is needed more than k steps after it is revealed, under a deadline that makes exhaustive re-search infeasible |
-| R1 | At least one reachable failure in each branch, recoverable and irrecoverable |
-| C1 | At least one unobserved exogenous event changes state that later work depends on |
-| V1 | The oracle passes under all scheduled events. The no-op, hidden-state-ignoring and never-recovering controls all fail |
-| E1 | Measured per scenario and horizon as the gap between the symbolic and embodied versions. A scenario whose gap is near zero is flagged as an abstract task |
-
-The thresholds are set from pilot runs, then frozen.
+Every instance must pass the predicates H1, M1, R1, C1, V1 and E1. `LONG_HORIZON_TASK_SPEC.md` section 2 defines them. The thresholds are set from pilot runs, then frozen.
 
 ## 8. Success and metrics
 
@@ -190,7 +218,11 @@ The thresholds are set from pilot runs, then frozen.
 - full history vs. last-k (M1);
 - symbolic vs. embodied (E1);
 - adaptive vs. plan-once (C1);
-- recovery-aware vs. failure-blind (R1).
+- recovery-aware vs. failure-blind (R1);
+- scripted vs. learned skill backend (section 6): the gap isolates motor failure from planning failure;
+- own plan vs. oracle plan: the evaluator gives the policy the correct skill sequence. A large gain means planning was the bottleneck; no gain means execution was.
+
+The symbolic and oracle-plan ablations give the policy evaluator-derived data, so they are diagnostics only (principle 6).
 
 ## 9. Project structure
 
@@ -220,18 +252,13 @@ day_shift_zero/
     trace/                # trace writer and failure labeler
   tests/
 clients/
-  dsz_client/             # separate package: API client + model adapters (vla, vlm, agent, wam); no env imports
+  dsz_client/             # API client + model adapters (section 6)
 spike/                    # throwaway experiments, never imported by src/
 ```
 
-**Patterns and SOLID:**
-- **Strategy:** simulator backends, policy adapters and scenarios.
-- **Command plus a registry:** skills, processes, events and dynamics modules.
-- **Observer:** an event bus feeds the trace writer and the metrics.
-- **Factory:** the scenario generator builds instances.
-- **Dependency injection:** the env is constructed with its backend, scenario, clock and random streams, with no globals.
-- `core/` holds only abstractions, and every other package depends on `core/` (dependency inversion).
-- `world/` knows nothing about MuJoCo, and `src/` knows nothing about any specific scenario.
+**Patterns and dependency rules:** `CLAUDE.md`, engineering rules 1–2. Two rules specific to this layout:
+- The event bus feeds the trace writer and the metrics.
+- `world/` knows nothing about MuJoCo.
 
 ## 10. Two-day ship scope
 
@@ -241,12 +268,13 @@ spike/                    # throwaway experiments, never imported by src/
 | **Cloud kitchen** scenario: symbolic curves for N = 1 to 6+, embodied for N = 1 to about 3 | Threshold calibration and frozen seeds |
 | **Wedding cake** scenario on the symbolic backend, to prove the platform really is decoupled | Level 1 proposer loop (LLM-written scenarios) |
 | Oracle, negative controls, determinism test, trace labels | Rooms beyond the kitchen |
+| Scripted skill backend | Learned skill backend and the oracle-plan ablation |
 
 Every number in the ship is labeled **pilot, not a benchmark result**. A separate reviewer verifies the build.
 
 ## 11. Open questions
 
-1. What exactly are WAM and RAX (formats)?
+1. What are the adapter formats for WAM and RAX?
 2. Which models will we run, and do we have API keys?
 3. ~~Asset coverage~~ and ~~object pool vs. recompile~~: resolved, see section 12 run 2.
 
@@ -267,7 +295,7 @@ Every number in the ship is labeled **pilot, not a benchmark result**. A separat
 | Drift during long idle stretches | 2,000 idle steps (100 s simulated): items in bowls drifted up to 2 cm | Over a simulated day this adds up. **Freeze physics while the robot is idle** and advance only the semantic clock |
 | Checkpoint and restore | Exact (error 0.0 on a 221-dim state) | Checkpoint and resume of the full world is feasible |
 | Persistence across tasks | **No.** `reset()` builds a new kitchen every time (layout 52 → 14 → 11, new styles, model rebuilt) | Never call `reset()` during a run. Pin `layout_ids` and `style_ids`. Day Shift Zero has its own kitchen subclass and task layer; RoboCasa's task classes serve only as scene and fixture examples |
-| Physical vs. flag-based cooking | Flag-based, from the code (not run): stove flames are a color toggle driven by knob angle; toaster and oven state is read from joint positions | Processes are semantic and live in `world/`. Handling is physical (section 3) |
+| Physical vs. flag-based cooking | Flag-based, from the code (not run): stove flames are a color toggle driven by knob angle; toaster and oven state is read from joint positions | See section 3 |
 
 **Run 2: object pool (2026-11-21).**
 - Script: `spike/probes/object_pool_probe.py`. Raw output: `spike/probes/report_pool.json`.
