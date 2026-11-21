@@ -1,6 +1,6 @@
 # Long-Horizon Task Spec
 
-Version 1.2, 2026-11-21. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed. Your instructions are in `scenarios/AGENTS.md`.
+Version 1.3, 2026-11-22. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed. Your instructions are in `scenarios/AGENTS.md`.
 
 **How to use this file**
 
@@ -14,7 +14,7 @@ Version 1.2, 2026-11-21. This file defines a valid Day Shift Zero task. If this 
 2. Task definition (P1–P5)
 3. Sources of difficulty
 4. Memory (MR1–MR5)
-5. Claim rules (CR1–CR14)
+5. Claim rules (CR1–CR15)
 6. Oracle, controls and criteria
 7. Acceptance stages (S1–S6)
 8. Platform limits
@@ -35,6 +35,8 @@ Each term has one meaning in this file.
 | Observation o_t | The current view through open doors only, detections without global IDs, proprioception, clock and messages |
 | Embodied run | The policy gets o_t |
 | Symbolic run | The same instance, skills and failure rates. The policy gets s_t instead of the view |
+| Track | The action space a policy uses: skill level (skill calls) or low level (12-dim control at 20 Hz). `project.md` section 6 defines both |
+| Skill backend | How a skill runs: scripted (IK motion planning) or learned (a policy per atomic task) |
 | Exogenous event | A change that the robot does not cause: relocate, consume, delivery, fault, door left open, goal change |
 | Cue | A change in o_t that shows an event or a failure. A clock time is not a cue |
 | Physical consequence | An object, a place and a body action: find, tell apart, open, check, carry, unload or recover |
@@ -59,6 +61,7 @@ A scenario must have all five properties. Each predicate must be true for **ever
 
 - The thresholds θ_L, θ_D, k, θ_E, θ_M, θ_H and the seed list Σ come from pilot runs. Then they are frozen. Until then, label each number "pilot, not a benchmark result".
 - Reject a scenario that cannot produce certified instances.
+- Certify on the skill-level track with the scripted skill backend. The low-level track and the learned backend run the same instances, without their own certification.
 
 ## 3. Sources of difficulty
 
@@ -160,6 +163,7 @@ Each claim must meet every rule. A claim that fails a rule counts for no predica
 | CR12 | **Exercised.** A mechanism that cannot occur in the S4 backend is marked "not exercised" and counts for no predicate | A: backend capability list |
 | CR13 | **Not parametric.** The difficulty is not in the excluded table (section 3) | C: the greedy generic oracle passes; E1 |
 | CR14 | **Every horizon.** The claim is true for each h from h_min to h_max | C: all horizons |
+| CR15 | **Goal, not steps.** The objective, tickets and messages state the wanted outcome, never a sequence of skills. The robot chooses the steps | A: no skill sequence in the text |
 
 Until the verifier exists, the reviewer applies these checks by reading the files.
 
@@ -169,6 +173,7 @@ Until the verifier exists, the reviewer applies these checks by reading the file
 - It runs on the evaluator side. It can read the instance and ground truth to plan.
 - It finds recoverable failures only through o_t (CR10).
 - It is deterministic. Its randomness comes from `RngStreams` only.
+- Its skill trace is the oracle plan for the diagnostic ablation in `project.md` section 8.
 
 | Scenario | Oracle | Written by |
 |---|---|---|
@@ -197,7 +202,7 @@ Run the stages in order. Stop at the first stage that fails.
 |---|---|---|
 | S1 Parse | Structure | Verifier |
 | S2 Compile | Plugins, parameters, capabilities, references in a 1-day probe, ID rules | Verifier |
-| S3 Claims | CR1–CR14 and MR1–MR5, as far as the files show | Reviewer (later: the verifier, for kind A) |
+| S3 Claims | CR1–CR15 and MR1–MR5, as far as the files show | Reviewer (later: the verifier, for kind A) |
 | S4 Certify | H1, M1, R1, C1, V1 on the symbolic backend, every certified pair | Verifier |
 | S5 Embodiment | E1 | Verifier |
 | S6 Review | Definition, `DESIGN.md` and report | Person |
