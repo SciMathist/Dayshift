@@ -1,0 +1,110 @@
+# Care home lunches: 4-day kitchen shift. See DESIGN.md for the blueprint and difficulty claims.
+id: care_home_lunches
+description: >
+  Cook one marinated chicken lunch and pack sandwich boxes for the east wing of a care home
+  every day for four days. Stock arrives and moves while the robot does not watch.
+objective: >
+  Run the care home lunch service for four days.
+  Every day, put one hot lunch of marinated, cooked chicken on the pass before its due time.
+  The hot lunch ticket comes between 09:00 and 10:00.
+  Keep raw chicken, cheese and other chilled stock in fridge_main.
+  Marinate chicken in fridge_back: put it there and start the marinate process. It takes 8 hours.
+  Marinating starts on everything in fridge_back, so keep only chicken for marinating there.
+  Cook the chicken on the stove for 20 minutes and take it off within 10 minutes after that.
+  For each sandwich box ticket, put a filling on the pack counter, pack it and put the box on the pass.
+  Packing combines everything that is on the pack counter into one box.
+  Keep bread in the pantry.
+  Respect every instruction that the manager gives you.
+  You can order stock from farm_coop. Orders arrive on the dock at 08:00 the next day.
+horizon: {type: continuous, days: 4}
+
+fixtures:
+  fridge_main: fridge
+  fridge_back: fridge
+  pantry: cabinet
+  pack_counter: counter
+  stove: stove
+  dock: delivery_shelf
+  pass: dispatch_shelf
+  bin: trash
+
+modules:
+  spoilage: {}
+
+actors:
+  - {role: supplier, name: farm_coop, fixture: dock, lead_time_days: [1, 1], arrive_at_minute: 480}
+
+plugins: [scenarios.care_home_lunches.plugins]
+
+generator:
+  name: template
+  params:
+    initial:
+      - {type: bread, count: 4, at: pantry}                # bread_001..004
+      - {type: cheese, count: 9, at: fridge_main}          # cheese_001..009
+      - {type: chicken_breast, count: 2, at: fridge_main}  # chicken_breast_001..002
+    # Pool ids continue the per-type numbering. Standing deliveries use the highest ids;
+    # supplier orders take the lowest parked ids first. The whole pool is 10 items, the dock
+    # capacity, so the dock cannot overflow.
+    pool:
+      bread: 3           # bread_005..007: 007 on day 3; 005-006 orderable
+      cheese: 3          # cheese_010..012: 012 on day 2; 010-011 orderable
+      chicken_breast: 4  # chicken_breast_003..006: 006 on day 2, 005 on day 3; 003-004 orderable
+    subjects: [east_wing]
+    facts:
+      - id: standing_delivery
+        at: {day: 0, minute: 420}
+        text: >
+          A standing delivery comes to the dock at 08:00 on day 2 and on day 3.
+          Nobody will tell you when it is there.
+      - id: east_wing_gluten
+        at: {day: 1, minute: 450}
+        subject: east_wing
+        text: >
+          From today the east wing is a coeliac ward. No gluten in any east wing food
+          until further notice.
+        constraint: {exclude_allergens: [gluten]}
+    work:
+      - kind: hot_lunch
+        per_day: [1, 1]
+        window: [540, 600]     # ticket at 09:00-10:00
+        lead: [150, 210]       # due 11:30-13:30
+        collect: true
+        channel: tickets
+        sender: dining_room
+        variants:
+          - deliver: {item_type: chicken_breast, at: pass, stages: [marinated, cooked]}
+            ticket: "{work_id}: hot chicken lunch for the {subject}, on the pass by {due}."
+      - kind: sandwich_box
+        per_day: [2, 3]
+        window: [600, 720]     # tickets at 10:00-12:00
+        lead: [90, 150]
+        collect: true
+        channel: tickets
+        sender: dining_room
+        variants:
+          - deliver: {item_type: meal_box, at: pass, stages: [packed]}
+            ticket: "{work_id}: sandwich box for the {subject}, on the pass by {due}."
+    events:
+      # Standing deliveries (fact standing_delivery). Raw chicken spoils in 2 hours on the dock.
+      - kind: delivery
+        at: {day: 1, minute: 480}
+        payload: {fixture: dock, items: [chicken_breast_006, cheese_012]}
+      - kind: delivery
+        at: {day: 2, minute: 480}
+        payload: {fixture: dock, items: [chicken_breast_005, bread_007]}
+      # A co-worker takes the day-2 chicken out of fridge_main to "use it" and leaves it on the
+      # pack counter. The robot does not see this. It is the only chicken for the day-3 hot lunch.
+      - kind: relocate
+        at: {day: 1, minute: 590}
+        payload: {item: chicken_breast_006, expect_at: fridge_main, to: pack_counter}
+
+success:
+  criteria:
+    work_completion: {params: {min_on_time: 1.0}}
+    no_violations: {}
+    waste: {required: false, weight: 0.5, params: {budget: 6}}
+
+policies:
+  oracle: care_home_oracle
+  controls: [noop, care_home_ignore_facts, care_home_no_recovery]
