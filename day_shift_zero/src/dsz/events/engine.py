@@ -66,7 +66,8 @@ class EventEngine:
             handler = self._handler(ev.kind)
             blocked = [f for f in handler.touches(ev.payload) if not self._editor.robot_clear_of(f)]
             if blocked:
-                later = ScheduledEvent(max(due, self._world.now) + self._defer, ev.kind, ev.payload, ev.observable)
+                later = ScheduledEvent(max(due, self._world.now) + self._defer, ev.kind, ev.payload, ev.observable,
+                                       ev.source)
                 heapq.heappush(self._queue, (later.t, self._seq, later))
                 self._seq += 1
                 self._bus.publish(DomainEvent(self._world.now, "event.deferred", {"kind": ev.kind, "blocked": blocked}))

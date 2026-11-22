@@ -3,15 +3,19 @@
 Parameters (all optional except where noted):
 
     pool:     {item_type: count}                 # parked stock for deliveries
-    initial:  [{type, count, at, batch?}]        # items placed at the start
+    initial:  [{type, count, at, batch?}]        # items placed at the start; `at` may be a choice
     subjects: [str]                              # e.g. customer ids that work can be for
     facts:    [{id, text, at: {day, minute}, channel?, sender?, subject?,
                 constraint?: {exclude_allergens: [..]}}]
     work:     [{kind, per_day: [lo, hi], window: [min_lo, min_hi], lead: [lo, hi],
                 grace?, collect?, channel?, sender?,
                 variants: [{deliver: {...}, ticket: "text with {work_id} {subject} {due}"}]}]
-    events:   [{kind, payload, observable?, at: {day, minute}}                       # fixed
-               | {kind, payload, observable?, per_day: [lo, hi], window: [lo, hi]}]  # random
+    events:   [{kind, payload, id?, observable?, at: {day, minute}}                       # fixed
+               | {kind, payload, id?, observable?, per_day: [lo, hi], window: [lo, hi]}]  # random
+
+A choice `{one_of: [a, b, ...]}` can stand for an initial item's `at` or for any event
+payload value. Each seed draws one candidate from its own stream, so a choice never
+shifts other draws. One choice covers every item of an `initial` entry.
 
 A fact with a `subject` and a `constraint` silently applies to later work for that
 subject: the constraint joins the deliver predicate, but the ticket never repeats it (M1).
@@ -22,6 +26,8 @@ longer one.
 from __future__ import annotations
 
 from typing import Any, Mapping
+
+import numpy as np
 
 from dsz.core.rng import RngStreams
 from dsz.core.scenario import (
@@ -61,7 +67,7 @@ class TemplateGenerator(InstanceGenerator):
     def generate(self, ctx: GenerationContext, seed: int, horizon: Horizon, rng: RngStreams) -> Instance:
         """Sample the instance day by day."""
         p = ctx.params
-        items = _items(p)
+        items = _items(p, rng)
         facts = _facts(p, horizon)
         work, needed = _work(p, facts, horizon, rng)
         facts = tuple(Fact(f.fact_id, f.revealed_at, f.channel, f.text, f.sender, tuple(needed.get(f.fact_id, ())))
@@ -75,7 +81,26 @@ def _t(at: Mapping[str, int]) -> int:
     return int(at.get("day", 0)) * MINUTES_PER_DAY + int(at.get("minute", 0))
 
 
-def _items(p: Mapping[str, Any]) -> tuple[InitialItem, ...]:
+def _choose(value: Any, g: np.random.Generator) -> Any:
+    """Return one candidate of a `{one_of: [...]}` choice drawn with `g`; return other values unchanged.
+
+    Raises:
+        ValueError: if the choice has no candidates.
+    """
+    if not (isinstance(value, Mapping) and "one_of" in value):
+        return value
+    options = list(value["one_of"])
+    if not options:
+        raise ValueError("one_of needs at least one candidate")
+    return options[int(g.integers(len(options)))]
+
+
+def _payload(e: Mapping[str, Any], g: np.random.Generator) -> dict[str, Any]:
+    """Return the event payload with each choice resolved."""
+    return {k: _choose(v, g) for k, v in e.get("payload", {}).items()}
+
+
+def _items(p: Mapping[str, Any], rng: RngStreams) -> tuple[InitialItem, ...]:
     """Create initial items, then pool items; ids are <type>_<nnn> numbered per type."""
     counter: dict[str, int] = {}
     out = []
@@ -85,8 +110,9 @@ def _items(p: Mapping[str, Any]) -> tuple[InitialItem, ...]:
         counter[t] = counter.get(t, 0) + 1
         return f"{t}_{counter[t]:03d}"
 
-    for e in p.get("initial", []):
-        out += [InitialItem(next_id(e["type"]), e["type"], Location.at(e["at"]), e.get("batch"))
+    for k, e in enumerate(p.get("initial", [])):
+        at = _choose(e["at"], rng.indexed(f"initial.{k}.choice", 0))
+        out += [InitialItem(next_id(e["type"]), e["type"], Location.at(at), e.get("batch"))
                 for _ in range(int(e.get("count", 1)))]
     for t, n in sorted(p.get("pool", {}).items()):
         out += [InitialItem(next_id(t), t, Location.parked()) for _ in range(int(n))]
@@ -148,13 +174,16 @@ def _events(p: Mapping[str, Any], horizon: Horizon, rng: RngStreams) -> tuple[Sc
     for ei, e in enumerate(p.get("events", [])):
         obs = bool(e.get("observable", False))
         if "at" in e:
-            if _t(e["at"]) < horizon.end:
-                out.append(ScheduledEvent(_t(e["at"]), e["kind"], dict(e.get("payload", {})), obs))
+            t = _t(e["at"])
+            if t < horizon.end:
+                choice = rng.indexed(f"events.{ei}.choice", t // MINUTES_PER_DAY)
+                out.append(ScheduledEvent(t, e["kind"], _payload(e, choice), obs, e.get("id")))
             continue
         for day in range(horizon.days):
             g = rng.indexed(f"events.{ei}", day)
+            choice = rng.indexed(f"events.{ei}.choice", day)
             lo, hi = e["per_day"]
             for _ in range(int(g.integers(lo, hi + 1))):
                 t = day * MINUTES_PER_DAY + int(g.integers(e["window"][0], e["window"][1] + 1))
-                out.append(ScheduledEvent(t, e["kind"], dict(e.get("payload", {})), obs))
+                out.append(ScheduledEvent(t, e["kind"], _payload(e, choice), obs, e.get("id")))
     return tuple(sorted(out, key=lambda ev: (ev.t, ev.kind)))

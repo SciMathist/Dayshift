@@ -8,15 +8,15 @@ objective: >
   Every day, put one hot lunch of marinated, cooked chicken on the pass before its due time.
   The hot lunch ticket comes between 09:00 and 10:00.
   Keep raw chicken, cheese and other chilled stock in fridge_main.
-  Marinate chicken in fridge_back: put it there and start the marinate process. It takes 8 hours.
-  Marinating starts on everything in fridge_back, so keep only chicken for marinating there.
+  Chicken for a hot lunch must first be marinated in fridge_back, which takes 8 hours.
+  Marinating acts on everything in fridge_back, so keep only chicken for marinating there.
   Cook the chicken on the stove for 20 minutes and take it off within 10 minutes after that.
   For each sandwich box ticket, put a filling on the pack counter, pack it and put the box on the pass.
   Packing combines everything that is on the pack counter into one box.
   Keep bread in the pantry.
   Respect every instruction that the manager gives you.
   You can order stock from farm_coop. Orders arrive on the dock at 08:00 the next day.
-horizon: {type: continuous, days: 4}
+horizon: {type: continuous, days: 4, min_days: 3}
 
 fixtures:
   fridge_main: fridge
@@ -33,8 +33,6 @@ modules:
 
 actors:
   - {role: supplier, name: farm_coop, fixture: dock, lead_time_days: [1, 1], arrive_at_minute: 480}
-
-plugins: [scenarios.care_home_lunches.plugins]
 
 generator:
   name: template
@@ -96,6 +94,7 @@ generator:
       # A co-worker takes the day-2 chicken out of fridge_main to "use it" and leaves it on the
       # pack counter. The robot does not see this. It is the only chicken for the day-3 hot lunch.
       - kind: relocate
+        id: coworker_moves_chicken
         at: {day: 1, minute: 590}
         payload: {item: chicken_breast_006, expect_at: fridge_main, to: pack_counter}
 
@@ -104,6 +103,36 @@ success:
     work_completion: {params: {min_on_time: 1.0}}
     no_violations: {}
     waste: {required: false, weight: 0.5, params: {budget: 6}}
+
+# The claims of DESIGN.md. dsz verify checks them (S3).
+claims:
+  - id: L1
+    property: P1
+    mechanism: lead_time
+    consequence: {object: chicken_breast, place: fridge_back, action: carry}
+  - id: M1
+    property: P2
+    mechanism: facts
+    memory: T
+    content: which
+    fact: east_wing_gluten
+    hidden: [fridge_main, pantry]
+    consequence: {object: cheese, place: fridge_main, action: find}
+  - id: C1
+    property: P3
+    mechanism: drift
+    event: coworker_moves_chicken
+    consequence: {object: chicken_breast, place: pack_counter, action: recover}
+  - id: R1
+    property: P4
+    mechanism: resources
+    recovery: recoverable
+    consequence: {object: chicken_breast, place: dock, action: carry}
+  - id: R2
+    property: P4
+    mechanism: compounding
+    recovery: irrecoverable
+    consequence: {object: chicken_breast, place: pack_counter, action: check}
 
 policies:
   oracle: care_home_oracle

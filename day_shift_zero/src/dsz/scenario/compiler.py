@@ -1,13 +1,17 @@
 """Compiler: turn a parsed spec into a runnable Scenario, or fail early with every problem named.
 
-Steps: import the spec's plugin modules; resolve plugin names; build modules and actors
-once to validate their params; collect requirements; check them against the platform
-manifest; generate a one-day probe instance and check its references.
+`load_scenario` reads a scenario folder: the definition plus an optional `oracle.py`.
+`compile_spec` then imports the spec's plugin modules; resolves plugin names; builds
+modules and actors once to validate their params; collects requirements; checks them
+against the platform manifest; and checks references in a one-day probe instance.
 """
 
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import sys
+from pathlib import Path
 
 from dsz.actors.registry import ACTORS, build_actors
 from dsz.core.rng import RngStreams
@@ -17,7 +21,7 @@ from dsz.dynamics.registry import MODULES, build_modules
 from dsz.events.registry import EVENT_TYPES
 from dsz.scenario.composed import SpecScenario
 from dsz.scenario.registries import CRITERIA, GENERATORS, POLICIES
-from dsz.scenario.spec import ScenarioSpec, SpecError
+from dsz.scenario.spec import ScenarioSpec, SpecError, load_spec
 from dsz.scenario.work import deliver_spec
 from dsz.skills.registry import SKILLS
 from dsz.world.catalog import FIXTURE_KINDS, ITEM_TYPES, PROCESSES
@@ -27,6 +31,38 @@ from dsz.world.manifest import ManifestSources, build_manifest, check_requiremen
 def platform_manifest() -> CapabilitySet:
     """Return what the platform offers now (all registered plugins and vocabulary)."""
     return build_manifest(ManifestSources(FIXTURE_KINDS, ITEM_TYPES, PROCESSES, MODULES, ACTORS, EVENT_TYPES, SKILLS))
+
+
+def load_scenario(folder: str | Path) -> SpecScenario:
+    """Parse and compile the scenario in `folder`.
+
+    The folder holds `scenario.yaml` and, optionally, `oracle.py`. The oracle module is
+    imported by file path, so a scenario folder works wherever it lives.
+
+    Raises:
+        FileNotFoundError: if `folder/scenario.yaml` does not exist.
+        SpecError, MissingCapabilities: as `compile_spec`.
+    """
+    folder = Path(folder)
+    spec = load_spec(folder / "scenario.yaml")
+    oracle = folder / "oracle.py"
+    if oracle.is_file():
+        _import_file(f"dsz_scenarios.{spec.scenario_id}.oracle", oracle)
+    return compile_spec(spec)
+
+
+def _import_file(name: str, path: Path) -> None:
+    """Import the module at `path` under `name`, once per process."""
+    if name in sys.modules:
+        return
+    module_spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[name] = module
+    try:
+        module_spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
 
 
 def compile_spec(spec: ScenarioSpec) -> SpecScenario:

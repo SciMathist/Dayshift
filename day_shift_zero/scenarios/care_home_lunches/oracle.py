@@ -10,7 +10,7 @@ picks objects only by their index in the current detections.
 | `care_home_ignore_facts` | Never applies the east-wing diet fact: packs bread in every box |
 | `care_home_no_recovery` | Never clears foreign items from the pack counter before packing |
 
-Import path: `scenarios.care_home_lunches.plugins`. Run from `day_shift_zero/`.
+`dsz.scenario.load_scenario` imports this file from the scenario folder.
 """
 
 from __future__ import annotations

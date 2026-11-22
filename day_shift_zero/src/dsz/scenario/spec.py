@@ -42,6 +42,7 @@ class ScenarioSpec:
     objective: str
     horizon_type: HorizonType
     default_days: int
+    min_days: int  # shortest certified horizon; the certified set is min_days..default_days
     fixtures: Mapping[str, str]
     generator: PluginRef
     criteria: tuple[CriterionRef, ...]
@@ -50,6 +51,7 @@ class ScenarioSpec:
     modules: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     actors: tuple[Mapping[str, Any], ...] = ()
     plugins: tuple[str, ...] = ()  # importable modules that register scenario-specific plugins
+    claims: tuple[Mapping[str, Any], ...] = ()  # difficulty claims; dsz.certify.claim_checks checks them
 
 
 class SpecError(ValueError):
@@ -79,6 +81,9 @@ def parse_spec(raw: Mapping[str, Any]) -> ScenarioSpec:
     days = horizon.get("days", 1)
     if not isinstance(days, int) or days < 1:
         p.append("horizon.days must be a positive integer")
+    min_days = horizon.get("min_days", days)
+    if not isinstance(min_days, int) or not isinstance(days, int) or not 1 <= min_days <= days:
+        p.append("horizon.min_days must be an integer from 1 to horizon.days")
     fixtures = _req(raw, "fixtures", dict, p) or {}
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in fixtures.items()):
         p.append("fixtures must map fixture id to kind (strings)")
@@ -96,17 +101,33 @@ def parse_spec(raw: Mapping[str, Any]) -> ScenarioSpec:
     plugins = raw.get("plugins") or []
     if not isinstance(plugins, list) or not all(isinstance(x, str) for x in plugins):
         p.append("plugins must be a list of module paths")
+    claims = _claims(raw.get("claims"), p)
     known = {"id", "objective", "horizon", "fixtures", "generator", "success", "policies", "modules", "actors",
-             "plugins", "description"}
+             "plugins", "description", "claims"}
     p.extend(f"unknown top-level key '{k}'" for k in sorted(set(raw) - known))
     if p:
         raise SpecError(p)
     return ScenarioSpec(
         scenario_id=sid, objective=objective, horizon_type=HorizonType(htype), default_days=days,
-        fixtures=dict(fixtures), generator=generator, criteria=criteria, oracle=oracle,
+        min_days=min_days, fixtures=dict(fixtures), generator=generator, criteria=criteria, oracle=oracle,
         controls=tuple(c for c in controls if c), modules=dict(modules), actors=tuple(actors),
-        plugins=tuple(plugins),
+        plugins=tuple(plugins), claims=claims,
     )
+
+
+def _claims(raw: Any, p: list[str]) -> tuple[Mapping[str, Any], ...]:
+    """Parse `claims`: a list of mappings, each with a unique string `id`. The checks are in dsz.certify."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(c, dict) for c in raw):
+        p.append("claims must be a list of mappings")
+        return ()
+    ids = [c.get("id") for c in raw]
+    if not all(isinstance(i, str) for i in ids):
+        p.append("each claim needs a string 'id'")
+    elif len(set(ids)) < len(ids):
+        p.append("claim ids must be unique")
+    return tuple(raw)
 
 
 def _req(raw: Mapping[str, Any], key: str, typ: type, p: list[str]) -> Any:

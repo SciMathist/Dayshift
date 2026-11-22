@@ -37,6 +37,7 @@ class ScheduledEvent:
     kind: str  # must be a registered event type
     payload: Mapping[str, Any] = field(default_factory=dict)
     observable: bool = False  # whether the robot is told about it
+    source: str | None = None  # id of the definition entry that made it, for claim checks
 
 
 @dataclass(frozen=True, slots=True)
