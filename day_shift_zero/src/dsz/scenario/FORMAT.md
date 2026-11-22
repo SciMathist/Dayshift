@@ -127,6 +127,21 @@ claims:
 | `hidden` | CR6: at least 2 fixtures, none named in the objective, a fact or a ticket. Needed for `hidden_state` and for memory class T (MR3) |
 | `event` | C1, CR5: the event is not `observable`, and no text states its what, where and when |
 
+## What S4 measures
+
+S4 runs the oracle and the controls on every seed and every horizon from `min_days` to `days`. The oracle is the platform's generic oracle unless the scenario has its own. On each pair:
+
+| Check | Passes when | Uses |
+|---|---|---|
+| V1 | The oracle passes. `noop`, `hidden_state_blind`, `never_recover` and `memoryless` each fail | The success criteria |
+| OC1, OC2 | The oracle never changes the world while it decides, and two runs make the same skill calls | - |
+| H1 | The oracle makes at least theta_L motor skill calls. Its longest chain of dependent calls has at least theta_D links, and one link crosses a day | - |
+| M1 | For one P2 claim, the robot uses the item at least k motor calls after it last saw it (class S, D, I), or after the fact was told (class T) | `hidden`, `consequence.object`, `fact` |
+| R1 | `never_recover` fails, so a recoverable failure needed recovery. The irrecoverable half is for the reviewer | - |
+| C1 | For one P3 claim, the robot cannot see the event happen, and an oracle that misses only that event loses work | `event` |
+
+Pilot values: theta_L 50, theta_D 6, k 10. They are not frozen benchmark values. A motor call is navigate_to, open, close, pick, place, set_power or start_process.
+
 ## Platform limits
 
 These limits apply now. Do not claim a difficulty that they block. List what you need under capability requests in `DESIGN.md`.

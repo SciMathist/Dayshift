@@ -14,7 +14,7 @@ The prompt gives you the `dsz verify` output and the author's report.
 ## Steps
 
 1. Read `SPEC.md`, `FORMAT.md`, `scenario/scenario.yaml` and `scenario/DESIGN.md`.
-2. Check each claim against CR1–CR15 and MR1–MR5, as far as the files show (stage S3). `dsz verify` already checked the rules listed under "Claims" in `FORMAT.md`, CR15 and V1. Spend your effort on the others, for example CR3, CR4, CR7, CR8, CR9, MR4 and MR5.
+2. Check each claim against CR1–CR15 and MR1–MR5, as far as the files show (stage S3). `dsz verify` already checked the rules listed under "Claims" and "What S4 measures" in `FORMAT.md`, and CR15. Spend your effort on the others, for example CR3, CR4, CR8, CR9, MR4, CR10 and the irrecoverable half of R1. The verify output lists what it did not verify.
 3. For each of P1–P5, find a claim that supports it.
 4. Check the excluded sources (`SPEC.md` section 3) and the platform limits (`FORMAT.md`).
 5. Check that each statement in the author's report agrees with the files.

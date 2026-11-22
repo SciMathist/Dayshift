@@ -24,7 +24,7 @@ Write no other file. You cannot write code. If the platform lacks something, use
 2. Choose an idea. Check it against `SPEC.md` sections 3 and 4 and the platform limits before you write.
 3. Write `DESIGN.md`. Remove each claim that breaks a rule in `SPEC.md`.
 4. Write `scenario.yaml` with its `claims`. Set the criterion parameters once.
-5. Run `dsz verify scenario`. Fix each problem and run it again until it passes. This is the only command you can run. S4 runs the platform's generic oracle and its controls. If the oracle fails, the scenario needs scheduling or search: change it. If a control passes, a claimed difficulty is missing: change the scenario, not the criteria.
+5. Run `dsz verify scenario`. Fix each problem and run it again until it passes. This is the only command you can run. `FORMAT.md` ("What S4 measures") says what S4 checks. If the oracle fails, the scenario needs scheduling or search: change it. If a control passes or a predicate fails, a claimed difficulty is missing: change the scenario, not the criteria.
 6. Give the report (below).
 
 ## DESIGN.md

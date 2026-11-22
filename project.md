@@ -164,14 +164,13 @@ Why a sandbox:
 
 | Built | Not built yet |
 |---|---|
-| S1 parse; S2 compile, ID and h_min rules, references on every pair, work due within the horizon (CR14); S3 kind-A checks on the `claims` block (CR1, CR2, CR5, CR6, MR1–MR3, C1, R1, P1–P4 coverage) and on the texts (CR15; CR5 notes); S4 V1 with the generic oracle and its derived controls, and OC2 | S4 H1, M1, R1, C1; S5 (E1); the hedge library (CR8); the `recipe:` block |
+| S1 parse; S2 compile, ID and h_min rules, references on every pair, work due within the horizon (CR14); S3 kind-A checks on the `claims` block (CR1, CR2, CR5, CR6, MR1–MR3, C1, R1, P1–P4 coverage) and on the texts (CR15; CR5 notes); S4 on every pair: V1 with the generic oracle and its derived controls, OC1, H1, M1, the recoverable half of R1, and C1 (a) and (c); OC2 on one pair. Thresholds are pilot values | S5 (E1, needs the embodied backend); the hedge library (CR8); the `recipe:` block; checks no run can make (R1 irrecoverable half, CR4 cues, MR4, CR10) |
 
 S4 uses the generic oracle (`dsz.certify.oracle`) unless the scenario has its own `oracle.py`. Its controls are `noop`, `hidden_state_blind`, `never_recover` and `memoryless`, each the oracle with one part swapped.
 
 Open items:
 - the hedge library (CR8) and the `recipe:` block;
 - a sensing belief for the oracle (CR10: it now reads ground truth);
-- the H1, M1, R1 and C1 checks;
 - E1 measurement and the reference agents;
 - frozen thresholds and seed list;
 - the CI path check for scenario pull requests.
