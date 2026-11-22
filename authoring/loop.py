@@ -1,8 +1,8 @@
 """Run the scenario author/reviewer loop headless, with each agent in a sandbox.
 
 One run:
-  1. Build a workspace outside the repository: SPEC.md, FORMAT.md, VOCABULARY.md and an
-     empty scenario/ folder. The agents see nothing else.
+  1. Build a workspace outside the repository: SPEC.md, FORMAT.md, VOCABULARY.md, BRIEF.md
+     and an empty scenario/ folder. The agents see nothing else.
   2. The author (one CLI session, resumed each round) writes scenario/.
   3. This script runs `dsz verify` itself.
   4. If verify passes, a fresh read-only reviewer gives a JSON verdict.
@@ -13,7 +13,11 @@ One run:
 Every call's output goes to runs/scenario_loop/<UTC time>/ (git-ignored).
 
 Usage, from the repository root:
-    python authoring/loop.py --rounds 3 --brief "optional idea"
+    python authoring/loop.py --rounds 3 [--brief brief.json | --brief "an objective"]
+
+The brief (`brief.md`) is the prior: none means `free`, text means `improve` with that
+objective, a .json file sets the mode. In `strict` mode an author that reports
+"BRIEF INFEASIBLE:" ends the run with status `brief_infeasible`.
 """
 
 from __future__ import annotations
@@ -30,6 +34,8 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from brief import Brief, BriefError, infeasible, load_brief, stamp_problem
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -81,7 +87,7 @@ class LoopConfig:
     budget_usd: float | None
     timeout_s: int
     seeds: int
-    brief: str
+    brief: Brief
 
 
 @dataclass(frozen=True)
@@ -112,16 +118,22 @@ class RunLog:
 
 # ---- sandbox -------------------------------------------------------------------------------
 
-def build_workspace() -> Path:
+def build_workspace(brief: Brief, warning: str | None) -> Path:
     """Create the workspace outside the repository and return its path."""
     workspace = Path(tempfile.mkdtemp(prefix="dsz-scenario-"))
     for name, source in COPIED.items():
         shutil.copyfile(source, workspace / name)
-    vocab = subprocess.run([str(VENV_BIN / "dsz"), "vocab"], capture_output=True, text=True, check=True,
-                           encoding="utf-8")
-    (workspace / "VOCABULARY.md").write_text(vocab.stdout, encoding="utf-8")
+    (workspace / "VOCABULARY.md").write_text(dsz_vocab(), encoding="utf-8")
+    note = f"\n> Warning: {warning}.\n" if warning else ""
+    (workspace / "BRIEF.md").write_text(brief.text() + note, encoding="utf-8")
     (workspace / "scenario").mkdir()
     return workspace
+
+
+def dsz_vocab(*args: str) -> str:
+    """Return the output of `dsz vocab` with `args`."""
+    return subprocess.run([str(VENV_BIN / "dsz"), "vocab", *args], capture_output=True, text=True, check=True,
+                          encoding="utf-8").stdout
 
 
 def agent_env(workspace: Path, role: str) -> dict[str, str]:
@@ -221,16 +233,16 @@ def run_verify(cfg: LoopConfig, workspace: Path, report_path: Path) -> VerifyRes
 
 # ---- prompts -------------------------------------------------------------------------------
 
-def first_prompt(brief: str) -> str:
+def first_prompt() -> str:
     """Return the author's first prompt."""
-    idea = f"\n\nIdea from the person who runs this loop: {brief}" if brief else ""
-    return (f"Write one new Day Shift Zero scenario in scenario/. These IDs are taken: "
-            f"{', '.join(sorted(taken_ids()))}.{idea}")
+    return (f"Write one new Day Shift Zero scenario in scenario/. Read BRIEF.md first and follow its mode. "
+            f"These IDs are taken: {', '.join(sorted(taken_ids()))}.")
 
 
 def review_prompt(report: str, verify: VerifyResult) -> str:
     """Return the reviewer's prompt for one round."""
-    return (f"Review the scenario in scenario/.\n\n## dsz verify: {'PASS' if verify.ok else 'FAIL'}\n"
+    return (f"Review the scenario in scenario/ against BRIEF.md in its mode.\n\n"
+            f"## dsz verify: {'PASS' if verify.ok else 'FAIL'}\n"
             f"```\n{verify.output}\n```\n\n## Author's report\n{report}")
 
 
@@ -273,16 +285,25 @@ def install(workspace: Path, sid: str) -> Path:
 
 def run_loop(cfg: LoopConfig) -> RunLog:
     """Run the author/verify/review loop and return the finished run log."""
-    workspace = build_workspace()
+    warning = stamp_problem(cfg.brief, json.loads(dsz_vocab("--json")))
+    if warning:
+        print(f"warning: {warning}", flush=True)
+    workspace = build_workspace(cfg.brief, warning)
     session_id = str(uuid.uuid4())
     log = new_run_log(cfg, session_id, workspace)
-    prompt = first_prompt(cfg.brief)
+    log.summary["brief_warning"] = warning
+    prompt = first_prompt()
     log.summary["status"] = "rounds_exhausted"
     try:
         for n in range(1, cfg.rounds + 1):
             print(f"[round {n}] author working ...", flush=True)
             author = run_claude(cfg, prompt, author_args(cfg, session_id, first=n == 1), workspace, "author")
             record(log, f"round{n}_author.json", author)
+            reason = infeasible(author.get("result", "")) if cfg.brief.mode == "strict" else None
+            if reason:
+                log.summary["status"], log.summary["brief_infeasible"] = "brief_infeasible", reason
+                print(f"[round {n}] brief infeasible: {reason}", flush=True)
+                break
             shutil.copytree(workspace / "scenario", log.directory / f"round{n}_scenario")
             verify = run_verify(cfg, workspace, log.directory / f"round{n}_verify.json")
             log.write(f"round{n}_verify.txt", verify.output)
@@ -321,10 +342,14 @@ def parse_args() -> LoopConfig:
     parser.add_argument("--budget-usd", type=float, default=None, help="--max-budget-usd per call")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds per CLI call")
     parser.add_argument("--seeds", type=int, default=5, help="seeds for dsz verify (default 5)")
-    parser.add_argument("--brief", default="", help="optional scenario idea for the author")
+    parser.add_argument("--brief", default="", help="brief.json, or an objective as text (see brief.md)")
     args = parser.parse_args()
+    try:
+        brief = load_brief(args.brief)
+    except (BriefError, OSError) as e:
+        parser.error(str(e))
     return LoopConfig(find_claude_bin(), args.rounds, args.author_model, args.reviewer_model, args.budget_usd,
-                      args.timeout, args.seeds, args.brief)
+                      args.timeout, args.seeds, brief)
 
 
 def main() -> None:

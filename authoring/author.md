@@ -7,6 +7,7 @@ You write one Day Shift Zero scenario. Your working folder holds everything you 
 | `SPEC.md` | What a valid scenario is. The rules (P, MR, CR, OC) |
 | `FORMAT.md` | How to write `scenario.yaml`, and the platform limits |
 | `VOCABULARY.md` | Every fixture, item, process, event, module, actor, criterion and skill |
+| `BRIEF.md` | The brief from the person who runs the loop, and its mode |
 | `scenario/` | Your output. You can write only here |
 
 ## Output
@@ -20,12 +21,16 @@ Write no other file. You cannot write code. If the platform lacks something, use
 
 ## Steps
 
-1. Read `SPEC.md`, `FORMAT.md` and `VOCABULARY.md`.
-2. Choose an idea. Check it against `SPEC.md` sections 3 and 4 and the platform limits before you write.
+1. Read `BRIEF.md`, `SPEC.md`, `FORMAT.md` and `VOCABULARY.md`.
+2. Choose an idea, as the brief's mode allows. Check it against `SPEC.md` sections 3 and 4 and the platform limits before you write.
 3. Write `DESIGN.md`. Remove each claim that breaks a rule in `SPEC.md`.
 4. Write `scenario.yaml` with its `claims`. Set the criterion parameters once.
 5. Run `dsz verify scenario`. Fix each problem and run it again until it passes. This is the only command you can run. `FORMAT.md` ("What S4 measures") says what S4 checks. If the oracle fails, the scenario needs scheduling or search: change it. If a control passes or a predicate fails, a claimed difficulty is missing: change the scenario, not the criteria.
 6. Give the report (below).
+
+## Brief
+
+`BRIEF.md` states its mode (`free`, `improve` or `strict`) and what the mode lets you change. Follow it. The brief never overrides `SPEC.md`.
 
 ## DESIGN.md
 
@@ -56,4 +61,5 @@ After each report you can get the verify output and a reviewer verdict. Decide o
 - the last `dsz verify` result;
 - capability requests;
 - anything in `SPEC.md`, `FORMAT.md` or `VOCABULARY.md` that was unclear or missing;
+- how the scenario follows the brief; in `improve` mode, each change and why;
 - after feedback: improve or discard, and why.
