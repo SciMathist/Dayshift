@@ -20,3 +20,6 @@ traces/
 
 # Personal progress tracker
 TODO.md
+
+# Built skill packages (authoring/build_skill.py)
+dist/

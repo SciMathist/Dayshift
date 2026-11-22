@@ -138,7 +138,7 @@ Guardrails for any scenario:
 - The cloud-kitchen objective above uses demand forecasting, stock reordering and margin, which are parametric (principle 7). Rewrite it before the scenario is certified.
 - Volume stays within what one robot can do at simulation speed.
 
-**Scenario authoring.** Agents write scenarios in a sandbox, and people review them. How to run the loop: `authoring/README.md`.
+**Scenario authoring.** Agents write scenarios in a sandbox, and people review them. A person can give the loop a brief: an objective, notes, and a mode (`free`, `improve` or `strict`) that says how closely the author must follow it. The `scenario-brief` skill helps write a brief with any agent, for example Claude on the web. How to run the loop and build the skill: `authoring/README.md`.
 
 | Role | Sees | Produces |
 |---|---|---|
