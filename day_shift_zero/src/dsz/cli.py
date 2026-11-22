@@ -15,12 +15,13 @@ def main(argv: list[str] | None = None) -> int:
     """Run one subcommand and return its exit code."""
     parser = argparse.ArgumentParser(prog="dsz", description="Day Shift Zero tools.")
     sub = parser.add_subparsers(dest="command", required=True)
-    v = sub.add_parser("verify", help="check a scenario folder (stages S1, S2, S4)")
+    v = sub.add_parser("verify", help="check a scenario folder (stages S1 to S4)")
     v.add_argument("folder", type=Path, help="folder with scenario.yaml")
     v.add_argument("--seeds", type=int, default=5, help="seeds 0..N-1 for S4 (default 5)")
     v.add_argument("--json", type=Path, default=None, help="also write the report as JSON to this path")
     sub.add_parser("vocab", help="print the platform vocabulary as Markdown")
     args = parser.parse_args(argv)
+    sys.stdout.reconfigure(errors="replace")  # reports quote scenario text; never crash on the console encoding
 
     if args.command == "vocab":
         from dsz.scenario.vocabulary_doc import vocabulary_markdown
