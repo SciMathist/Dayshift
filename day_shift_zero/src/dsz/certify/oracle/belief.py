@@ -6,6 +6,7 @@
 | `PlacedBelief` | `never_recover` | The true place, except that an item it put down stays where it put it |
 | `ObservedBelief(remember=True)` | `hidden_state_blind` | The start layout, then only what the robot saw |
 | `ObservedBelief(remember=False)` | `memoryless` | The start layout, plus the current view only |
+| `StaleAfterEventBelief` | `stale_after_event` (C1 probe) | Ground truth, except one event's moves until it looks |
 
 Only the place is believed. Type, stages and condition come from the world, so a control
 differs from the oracle in one thing.
@@ -13,7 +14,7 @@ differs from the oracle in one thing.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Mapping, Protocol
 
 from dsz.core.scenario import Instance
 from dsz.core.types import LocationKind
@@ -71,6 +72,56 @@ class PlacedBelief(GroundTruthBelief):
     def where(self, item_id: str) -> str | None:
         """Return where the robot put the item, else its true fixture."""
         return self._placed.get(item_id) or super().where(item_id)
+
+
+class StaleAfterEventBelief(GroundTruthBelief):
+    """Ground truth, except one event: an item it moves stays where it was until the robot looks.
+
+    This is the C1 (c) probe, "a policy that uses the state before the event". If the robot
+    looks at the old place and the item is gone, the item's place becomes unknown.
+    """
+
+    def __init__(self, world: WorldState, instance: Instance, event_id: str) -> None:
+        """Watch the events in `instance` whose definition id is `event_id`."""
+        super().__init__(world)
+        self._pending = sorted((e for e in instance.events if e.source == event_id), key=lambda e: e.t)
+        self._before = _places(world)
+        self._stale: dict[str, str | None] = {}
+
+    def observe(self, world: WorldState) -> None:
+        """Mark items the event moved since the last decision; clear them once the robot looks."""
+        now = _places(world)
+        for event in [e for e in self._pending if e.t <= world.now]:
+            moved = [i for i in _named(event.payload, world) if self._before.get(i) and now.get(i)
+                     and now[i] != self._before[i]]
+            if moved:
+                self._stale.update({i: self._before[i] for i in moved})
+                self._pending.remove(event)
+        here = world.robot_at
+        if here and (not world.fixture(here).spec.has_door or world.fixture(here).is_open):
+            for iid, believed in list(self._stale.items()):
+                if now.get(iid) == here:
+                    del self._stale[iid]
+                elif believed == here:
+                    self._stale[iid] = None
+        self._before = now
+
+    def where(self, item_id: str) -> str | None:
+        """Return the stale place of an item the event moved, else its true fixture."""
+        return self._stale[item_id] if item_id in self._stale else super().where(item_id)
+
+
+def _places(world: WorldState) -> dict[str, str]:
+    """Return item id -> fixture for every item at a fixture."""
+    return {i.item_id: i.location.fixture for i in world.in_world() if i.location.kind is LocationKind.FIXTURE}
+
+
+def _named(payload: Mapping[str, Any], world: WorldState) -> list[str]:
+    """Return the ids of the items an event payload names, by id or by type."""
+    ids = list(payload.get("items", [])) + ([payload["item"]] if isinstance(payload.get("item"), str) else [])
+    if isinstance(payload.get("item_type"), str):
+        ids += [i.item_id for i in world.in_world() if i.item_type == payload["item_type"]]
+    return ids
 
 
 class ObservedBelief:

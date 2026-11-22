@@ -5,11 +5,12 @@
 | S1 Parse | `scenario.yaml` exists and parses |
 | S2 Compile | Plugins, parameters, capabilities, references; ID and h_min rules; work due in the horizon |
 | S3 Claims | Kind-A checks: the claims block (`claim_checks`) and the texts (`text_checks`: CR15; CR5 notes) |
-| S4 Certify | V1: on every seed and horizon the oracle passes and every control fails. OC2 on one pair |
+| S4 Certify | On every seed and horizon: OC1, V1, H1, M1, R1 (recoverable half), C1 (a, c). OC2 on one pair |
 
 The oracle is the scenario's own (`oracle.py`) if the definition names one, else the
-generic oracle with its derived controls. The reviewer checks the rest of S3. H1, M1,
-R1, C1 and S5 are not built yet; the report says so. Deterministic, read-only, no LLM.
+generic oracle with its derived controls. The reviewer checks the rest of S3. The report
+lists what S4 does not verify. S5 needs the embodied backend, which does not exist yet.
+Deterministic, read-only, no LLM.
 """
 
 from __future__ import annotations
@@ -22,30 +23,32 @@ from typing import Any
 import yaml
 
 from dsz.certify.claim_checks import check_claims
-from dsz.certify.oracle import DERIVED_CONTROLS, GENERIC_ORACLE
+from dsz.certify.oracle import DERIVED_CONTROLS, GENERIC_ORACLE, STALE_PROBE
+from dsz.certify.predicates import PILOT_THRESHOLDS, Thresholds, h1, memory_gap, unseen
+from dsz.certify.runner import RunResult, run_policy
 from dsz.certify.text_checks import announced_events, skill_sequences
-from dsz.core.policy import Policy
 from dsz.core.rng import RngStreams
-from dsz.core.types import SkillCall, Verdict
 from dsz.scenario import (
-    POLICIES,
     ScenarioSpec,
     SpecError,
     SpecScenario,
     load_scenario,
     load_spec,
-    materialize,
     validate_instance,
 )
 from dsz.world.manifest import MissingCapabilities
 
 PASS, FAIL = "pass", "fail"
 GENERIC_CONTROLS = ("noop",)
-MAX_ACTIONS = 50_000
 MIN_DAYS = 2
 ID_PATTERN = re.compile(r"[a-z][a-z0-9]*(_[a-z0-9]+)*")
-NOT_BUILT = ("S3 here runs the kind-A checks only; the reviewer checks the rest. "
-             "Not built yet: H1, M1, R1, C1 (S4) and S5. Numbers are pilot, not benchmark results.")
+NOT_BUILT = ("S3 here runs the kind-A checks only; the reviewer checks the rest. S5 is not built (no embodied "
+             "backend). Thresholds and numbers are pilot, not benchmark results.")
+NOT_VERIFIED = (
+    "Not verified: the irrecoverable half of R1 (no run can show that no policy saves the work item)",
+    "Not verified: C1 (d) and CR4 cues; MR4 (look-again cost against slack); OC3 for a scenario's own oracle",
+    "Not verified: CR10. The generic oracle reads ground truth, so it does not find failures by sensing",
+)
 
 
 @dataclass
@@ -90,8 +93,8 @@ class Report:
         return "\n".join(lines)
 
 
-def verify(folder: str | Path, seeds: int = 5) -> Report:
-    """Run S1, S2 and S4 on the scenario in `folder`, stopping at the first failed stage."""
+def verify(folder: str | Path, seeds: int = 5, thresholds: Thresholds = PILOT_THRESHOLDS) -> Report:
+    """Run S1 to S4 on the scenario in `folder`, stopping at the first failed stage."""
     folder = Path(folder)
     report = Report(str(folder), None, seeds)
     s1 = StageResult("S1 parse", PASS)
@@ -128,7 +131,7 @@ def verify(folder: str | Path, seeds: int = 5) -> Report:
     report.stages.append(s3)
     if s3.status == FAIL:
         return report
-    report.stages.append(_certify(scenario, seeds, report.runs))
+    report.stages.append(_certify(scenario, seeds, report.runs, thresholds))
     return report
 
 
@@ -172,75 +175,104 @@ def _claims_stage(scenario: SpecScenario, seeds: int) -> StageResult:
     return stage
 
 
-def _certify(scenario: SpecScenario, seeds: int, runs: list[dict[str, Any]]) -> StageResult:
-    """Run V1 (oracle passes, controls fail) on every pair and OC2 on one pair."""
+def _certify(scenario: SpecScenario, seeds: int, runs: list[dict[str, Any]], th: Thresholds) -> StageResult:
+    """Run OC1, V1 and the trace predicates H1, M1, R1 (recoverable half) and C1 on every pair; OC2 on one."""
     spec = scenario.spec
-    stage = StageResult("S4 certify", PASS)
+    stage = StageResult("S4 certify", PASS, notes=list(NOT_VERIFIED))
     oracle = spec.oracle.name if spec.oracle else GENERIC_ORACLE
     params = {c.name: c.params for c in spec.controls}
     derived = () if spec.oracle else DERIVED_CONTROLS
     controls = list(params) + [c for c in (*GENERIC_CONTROLS, *derived) if c not in params]
-    policies = [oracle] + controls
     params[oracle] = spec.oracle.params if spec.oracle else {}
-    for days in range(spec.min_days, spec.default_days + 1):
-        for seed in range(seeds):
-            for name in policies:
-                row = _run(scenario, name, params.get(name, {}), seed, days)
-                row["role"] = "oracle" if name == oracle else "control"
-                runs.append(row)
-                where = f"seed {seed}, {days} days"
-                if "error" in row:
-                    stage.problems.append(f"{name} crashed at {where}: {row['error']}")
-                elif row["role"] == "oracle" and not row["passed"]:
-                    stage.problems.append(f"V1: {name} fails at {where} (score {row['score']:.2f}): "
-                                          + "; ".join(row["notes"]))
-                elif row["role"] == "control" and row["passed"]:
-                    stage.problems.append(f"V1: control '{name}' passes at {where} (score {row['score']:.2f}). "
-                                          "The difficulty it removes is missing")
-    if not stage.problems:
-        a = _run(scenario, oracle, params[oracle], 0, spec.default_days, keep_trace=True)
-        b = _run(scenario, oracle, params[oracle], 0, spec.default_days, keep_trace=True)
-        if a.get("trace") != b.get("trace"):
-            stage.problems.append(f"OC2: two oracle runs at seed 0, {spec.default_days} days differ")
+    held = {"H1": 0, "M1": 0, "R1": 0, "C1": 0}
+    pairs = [(days, seed) for days in range(spec.min_days, spec.default_days + 1) for seed in range(seeds)]
+    for days, seed in pairs:
+        where = f"seed {seed}, {days} days"
+        results = {oracle: run_policy(scenario, oracle, params[oracle], seed, days, check_oc1=True)}
+        results.update({c: run_policy(scenario, c, params.get(c, {}), seed, days) for c in controls})
+        runs.extend({**r.row(), "role": "oracle" if n == oracle else "control"} for n, r in results.items())
+        stage.problems += _v1(results, oracle, where)
+        for name, problem in _predicates(scenario, results, oracle, seed, days, th).items():
+            if problem:
+                stage.problems.append(f"{name}: at {where}: {problem}")
+            else:
+                held[name] += 1
+    stage.problems += _oc2(scenario, oracle, params[oracle], spec.default_days)
     if not spec.oracle and any(p.startswith(("V1: generic_oracle", "generic_oracle crashed")) for p in stage.problems):
         stage.problems.append("The generic oracle cannot do this scenario. By spec section 6 it needs scheduling "
                               "or search: change the scenario")
-    stage.summary = _tally(runs, policies)
+    stage.summary = (_tally(runs, [oracle, *controls]) + "; "
+                     + ", ".join(f"{k} {v}/{len(pairs)} pairs" for k, v in held.items()))
     stage.status = FAIL if stage.problems else PASS
     return stage
 
 
-def _run(scenario: SpecScenario, name: str, params: dict, seed: int, days: int,
-         keep_trace: bool = False) -> dict[str, Any]:
-    """Run one policy on one (seed, horizon) pair and return a report row."""
-    row: dict[str, Any] = {"policy": name, "seed": seed, "days": days}
-    try:
-        instance = scenario.generate(seed, scenario.horizon(days), RngStreams(seed))
-        run = materialize(scenario, instance)
-        policy = POLICIES.get(name)(instance, run.world, params)
-        verdict, trace = _drive(run, policy)
-    except Exception as e:  # noqa: BLE001  (report any policy or platform crash as a finding)
-        row["error"] = f"{type(e).__name__}: {e}"
-        return row
-    row.update(passed=verdict.passed, score=round(verdict.score, 4), actions=len(trace), notes=list(verdict.notes))
-    if keep_trace:
-        row["trace"] = trace
-    return row
+def _v1(results: dict[str, RunResult], oracle: str, where: str) -> list[str]:
+    """Return crashes, OC1 and V1 problems for one pair."""
+    out = []
+    for name, r in results.items():
+        if r.error:
+            out.append(f"{name} crashed at {where}: {r.error}")
+        elif name == oracle and not r.passed:
+            out.append(f"V1: {name} fails at {where} (score {r.score:.2f}): " + "; ".join(r.notes))
+        elif name != oracle and r.passed:
+            out.append(f"V1: control '{name}' passes at {where} (score {r.score:.2f}). "
+                       "The difficulty it removes is missing")
+    if results[oracle].oc1:
+        out.append(f"{results[oracle].oc1} ({where})")
+    return out
 
 
-def _drive(run, policy: Policy) -> tuple[Verdict, list[str]]:
-    """Run `policy` until the horizon ends. Return the verdict and the skill calls made."""
-    policy.reset(run.brief())
-    obs, trace = run.observe(), []
-    while not run.done:
-        action = policy.act(obs)
-        if not isinstance(action, SkillCall):
-            raise TypeError(f"expected a SkillCall, got {type(action).__name__}")
-        trace.append(f"{run.world.now}:{action.name}{sorted(action.args.items())}")
-        if len(trace) > MAX_ACTIONS:
-            raise RuntimeError(f"more than {MAX_ACTIONS} skill calls before the horizon ended")
-        obs = run.observe(run.act(action))
-    return run.verdict(), trace
+def _predicates(scenario: SpecScenario, results: dict[str, RunResult], oracle: str, seed: int, days: int,
+                th: Thresholds) -> dict[str, str | None]:
+    """Return predicate -> problem (None if it holds) for one pair. The checks need a passing oracle run."""
+    o = results[oracle]
+    if o.error or not o.passed:
+        return {k: "not checked: the oracle did not pass" for k in ("H1", "M1", "R1", "C1")}
+    claims = scenario.spec.claims
+    found: dict[str, str | None] = {"H1": "; ".join(h1(o.calls, th)) or None}
+
+    gaps = {c["id"]: memory_gap(o.calls, c, o.instance, o.item_types) for c in claims if c.get("property") == "P2"}
+    best = max(gaps.values(), default=0)
+    found["M1"] = None if best >= th.memory_gap else (
+        f"largest memory gap {best} motor calls < k {th.memory_gap} ({_gap_list(gaps)})")
+
+    never = results.get("never_recover") or run_policy(scenario, "never_recover", {}, seed, days)
+    found["R1"] = (f"never_recover crashed: {never.error}" if never.error else
+                   "never_recover passes, so no recoverable failure needed recovery" if never.passed else None)
+
+    events = [c["event"] for c in claims if c.get("property") == "P3" and c.get("event")]
+    why = [_c1(scenario, o, e, seed, days) for e in events]
+    found["C1"] = None if any(w is None for w in why) else ("; ".join(why) or "no P3 claim names an event")
+    return found
+
+
+def _c1(scenario: SpecScenario, o: RunResult, event: str, seed: int, days: int) -> str | None:
+    """Return why one claimed event fails C1 (a) or (c) on this pair, or None if it holds.
+
+    (c) runs the generic oracle that misses this one event's moves until the robot looks.
+    """
+    if not unseen(o.calls, o.instance, event):
+        return f"the robot can see event '{event}' happen (a)"
+    stale = run_policy(scenario, STALE_PROBE, {"event": event}, seed, days)
+    if stale.error:
+        return f"{STALE_PROBE} crashed: {stale.error}"
+    if stale.on_time >= o.on_time:
+        return (f"a policy that misses event '{event}' still does {stale.on_time} work items on time, "
+                f"like the oracle ({o.on_time}) (c)")
+    return None
+
+
+def _oc2(scenario: SpecScenario, oracle: str, params: dict, days: int) -> list[str]:
+    """Return an OC2 problem if two oracle runs on seed 0 make different skill calls."""
+    a, b = (run_policy(scenario, oracle, params, 0, days) for _ in range(2))
+    same = [(c.t, c.name, c.args) for c in a.calls] == [(c.t, c.name, c.args) for c in b.calls]
+    return [] if same else [f"OC2: two oracle runs at seed 0, {days} days differ"]
+
+
+def _gap_list(gaps: dict[str, int]) -> str:
+    """Return `claim=gap` pairs, or say that there is no P2 claim."""
+    return ", ".join(f"{k}={v}" for k, v in gaps.items()) or "no P2 claim"
 
 
 def _tally(runs: list[dict[str, Any]], policies: list[str]) -> str:

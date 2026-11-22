@@ -6,7 +6,9 @@ import pytest
 import yaml
 
 from dsz.certify.oracle import DERIVED_CONTROLS, GENERIC_ORACLE, RecipeError, recipe_for
-from dsz.certify.verify import PASS, _run, verify
+from dsz.certify.predicates import Thresholds
+from dsz.certify.runner import run_policy
+from dsz.certify.verify import PASS, verify
 from dsz.core.scenario import WorkItem
 from dsz.scenario import compile_spec, parse_spec
 
@@ -75,24 +77,39 @@ def test_recipe_rejects_a_stage_no_fixture_can_add():
 def test_generic_oracle_passes_and_every_derived_control_fails(seed):
     """The oracle stores the delivery and rescues the moved chicken; each control loses day 2."""
     scenario = compile_spec(parse_spec(copy.deepcopy(KITCHEN)))
-    assert _run(scenario, GENERIC_ORACLE, {}, seed, 2)["passed"]
+    assert run_policy(scenario, GENERIC_ORACLE, {}, seed, 2).passed
     for control in (*DERIVED_CONTROLS, "noop"):
-        row = _run(scenario, control, {}, seed, 2)
-        assert "error" not in row and not row["passed"], control
+        result = run_policy(scenario, control, {}, seed, 2)
+        assert result.error is None and not result.passed, control
 
 
 def test_generic_oracle_is_deterministic():
     """OC2: the same seed gives the same skill calls."""
     scenario = compile_spec(parse_spec(copy.deepcopy(KITCHEN)))
-    first, second = (_run(scenario, GENERIC_ORACLE, {}, 0, 2, keep_trace=True)["trace"] for _ in range(2))
+    first, second = (run_policy(scenario, GENERIC_ORACLE, {}, 0, 2).calls for _ in range(2))
     assert first == second
 
 
-def test_verify_certifies_a_scenario_with_no_oracle_of_its_own(tmp_path):
-    """Without `policies`, S4 runs the generic oracle and its controls, and passes."""
+def _kitchen_folder(tmp_path):
+    """Write KITCHEN as a scenario folder and return it."""
     folder = tmp_path / "test_kitchen"
     folder.mkdir()
     (folder / "scenario.yaml").write_text(yaml.safe_dump(KITCHEN), encoding="utf-8")
-    report = verify(folder, seeds=2)
+    return folder
+
+
+def test_verify_certifies_a_scenario_with_no_oracle_of_its_own(tmp_path):
+    """Without `policies`, S4 runs the generic oracle, its controls and the predicates, and passes.
+
+    The kitchen is small (38 motor calls), so this test sets theta_L below the pilot value.
+    """
+    report = verify(_kitchen_folder(tmp_path), seeds=2, thresholds=Thresholds(calls=30, chain=6, memory_gap=10))
     assert report.ok, report.to_text()
     assert report.stages[-1].stage == "S4 certify" and report.stages[-1].status == PASS
+    assert report.stages[-1].summary.endswith("H1 2/2 pairs, M1 2/2 pairs, R1 2/2 pairs, C1 2/2 pairs")
+
+
+def test_pilot_thresholds_reject_a_short_scenario(tmp_path):
+    """At the pilot theta_L (50 motor calls) the 2-day kitchen fails H1 on every pair."""
+    report = verify(_kitchen_folder(tmp_path), seeds=1)
+    assert report.stages[-1].problems == ["H1: at seed 0, 2 days: 38 motor skill calls < theta_L 50"]

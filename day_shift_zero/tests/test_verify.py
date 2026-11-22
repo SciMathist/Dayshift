@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from dsz.certify.predicates import PILOT_THRESHOLDS
 from dsz.certify.verify import FAIL, PASS, _certify, verify
 from dsz.cli import main
 from dsz.scenario import SpecError, load_scenario, parse_spec
@@ -114,12 +115,17 @@ def test_care_home_lunches_m1_fails_cr6():
         "CR6: claim M1: hidden place 'pantry' is named in a text the robot gets"]
 
 
-def test_care_home_lunches_oracle_passes_and_its_controls_fail():
-    """S4 on its own: the scenario's oracle passes and every control fails on each certified pair."""
+def test_care_home_lunches_s4_holds_v1_but_not_r1_or_c1():
+    """S4 on its own: V1, OC1, OC2, H1 and M1 hold; R1 and C1 do not, because early marinating dodges the move.
+
+    The R1 and C1 probes are built on the generic oracle, which carries the delivered chicken
+    into fridge_back before the co-worker moves it.
+    """
     runs: list = []
-    stage = _certify(load_scenario(CARE_HOME), 1, runs)
-    assert stage.status == PASS, stage.problems
+    stage = _certify(load_scenario(CARE_HOME), 1, runs, PILOT_THRESHOLDS)
     assert {r["days"] for r in runs} == {3, 4}
+    assert {p.split(":")[0] for p in stage.problems} == {"R1", "C1"}, stage.problems
+    assert stage.summary.endswith("H1 2/2 pairs, M1 2/2 pairs, R1 0/2 pairs, C1 0/2 pairs")
 
 
 def test_cli_exit_codes_and_json(tmp_path, capsys):
