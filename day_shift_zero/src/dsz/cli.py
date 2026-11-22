@@ -1,4 +1,4 @@
-"""Command line: `dsz verify <folder>` and `dsz vocab`.
+"""Command line: `dsz verify <folder>` and `dsz vocab [--json]`.
 
 Exit codes for `verify`: 0 pass, 1 fail, 2 error in the verifier itself or bad arguments.
 """
@@ -19,13 +19,14 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("folder", type=Path, help="folder with scenario.yaml")
     v.add_argument("--seeds", type=int, default=5, help="seeds 0..N-1 for S4 (default 5)")
     v.add_argument("--json", type=Path, default=None, help="also write the report as JSON to this path")
-    sub.add_parser("vocab", help="print the platform vocabulary as Markdown")
+    vocab = sub.add_parser("vocab", help="print the platform vocabulary as Markdown")
+    vocab.add_argument("--json", action="store_true", help="print the names and the stamp as JSON instead")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(errors="replace")  # reports quote scenario text; never crash on the console encoding
 
     if args.command == "vocab":
-        from dsz.scenario.vocabulary_doc import vocabulary_markdown
-        sys.stdout.write(vocabulary_markdown())
+        from dsz.scenario.vocabulary_doc import vocabulary_data, vocabulary_markdown
+        sys.stdout.write(json.dumps(vocabulary_data(), indent=2) + "\n" if args.json else vocabulary_markdown())
         return 0
 
     from dsz.certify.verify import verify

@@ -1,6 +1,7 @@
 """Tests for scenario folders, the verifier (`dsz verify`) and the vocabulary reference (`dsz vocab`)."""
 
 import copy
+import json
 import textwrap
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from dsz.certify.predicates import PILOT_THRESHOLDS
 from dsz.certify.verify import FAIL, PASS, _certify, verify
 from dsz.cli import main
 from dsz.scenario import SpecError, load_scenario, parse_spec
-from dsz.scenario.vocabulary_doc import vocabulary_markdown
+from dsz.scenario.vocabulary_doc import vocabulary_data, vocabulary_markdown
 from tests.test_scenario import DELI
 
 CARE_HOME = Path(__file__).resolve().parents[1] / "scenarios" / "care_home_lunches"
@@ -134,6 +135,15 @@ def test_cli_exit_codes_and_json(tmp_path, capsys):
     assert main(["verify", str(tmp_path / "nowhere"), "--json", str(out)]) == 1
     assert '"ok": false' in out.read_text(encoding="utf-8")
     assert "RESULT: FAIL" in capsys.readouterr().out
+
+
+def test_vocabulary_json_has_names_and_a_content_stamp(capsys):
+    """`dsz vocab --json` lists names by category; the stamp is stable and appears in the Markdown too."""
+    assert main(["vocab", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert "fridge" in data["fixture_kinds"] and "relocate" in data["events"] and len(data["stamp"]) == 12
+    assert data == vocabulary_data()
+    assert f"Vocabulary stamp: `{data['stamp']}`" in vocabulary_markdown()
 
 
 def test_vocabulary_lists_every_registry():

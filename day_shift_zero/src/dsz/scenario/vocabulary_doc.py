@@ -1,4 +1,4 @@
-"""Render the platform vocabulary as Markdown for scenario authors (`dsz vocab`).
+"""Render the platform vocabulary for scenario authors: Markdown (`dsz vocab`) or data (`dsz vocab --json`).
 
 The text is built from the registries, so it always matches the code. It lists what a
 definition can name: fixture kinds, item types, processes, events, dynamics modules,
@@ -7,7 +7,9 @@ actors, success criteria and the skills the robot has.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 from typing import Iterable
 
 from dsz.actors.registry import ACTORS
@@ -15,8 +17,25 @@ from dsz.dynamics.registry import MODULES
 from dsz.events.registry import EVENT_TYPES
 from dsz.scenario.registries import CRITERIA
 from dsz.skills.executor import skills_doc
+from dsz.skills.registry import SKILLS
 from dsz.world.catalog import FIXTURE_KINDS, ITEM_TYPES, PROCESSES
 from dsz.world.vocabulary import register_default_vocabulary
+
+
+def vocabulary_data() -> dict:
+    """Return the vocabulary's names by category, plus `stamp`: a hash of those names.
+
+    The stamp changes only when the vocabulary changes, so a brief can tell which
+    vocabulary it was written against.
+    """
+    register_default_vocabulary()
+    names = {
+        "fixture_kinds": sorted(FIXTURE_KINDS), "item_types": sorted(ITEM_TYPES), "processes": sorted(PROCESSES),
+        "events": sorted(EVENT_TYPES), "modules": sorted(MODULES), "actors": sorted(ACTORS),
+        "criteria": sorted(CRITERIA), "skills": sorted(SKILLS),
+    }
+    digest = hashlib.sha256(json.dumps(names, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    return {"stamp": digest, **names}
 
 
 def vocabulary_markdown() -> str:
@@ -24,7 +43,8 @@ def vocabulary_markdown() -> str:
     register_default_vocabulary()
     parts = [
         "# Platform vocabulary",
-        "Generated from the platform registries. A definition can name only what is listed here.",
+        "Generated from the platform registries. A definition can name only what is listed here. "
+        f"Vocabulary stamp: `{vocabulary_data()['stamp']}`.",
         _fixtures(), _items(), _processes(),
         _documented("Events", "`kind` in `generator.params.events`.", EVENT_TYPES),
         _documented("Dynamics modules", "Keys of `modules`.", MODULES),
