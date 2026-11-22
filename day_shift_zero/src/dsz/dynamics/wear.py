@@ -24,6 +24,8 @@ FAILING = 0.5
 class WearModule(DynamicsModule):
     """Reduce the health of the listed fixtures by a noisy daily rate.
 
+    A fridge or freezer below health 0.5 works at ambient temperature (see `equipment_fault`).
+
     Params:
         fixtures (list[str]): fixture ids that wear.
         per_day (float): mean health loss per day (health starts at 1.0).

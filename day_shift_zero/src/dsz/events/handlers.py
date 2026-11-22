@@ -167,7 +167,11 @@ class DoorLeftOpenEvent(EventHandler):
 
 @register_event
 class EquipmentFaultEvent(EventHandler):
-    """Sudden equipment fault: set a fixture's health. Payload: fixture, health (0..1)."""
+    """Sudden equipment fault: lower a fixture's health. Payload: fixture, health (0..1).
+
+    A fridge or freezer below health 0.5 works at ambient temperature, so its items
+    spoil at the ambient rate. Symbolic detections do not show this.
+    """
 
     kind = "equipment_fault"
 

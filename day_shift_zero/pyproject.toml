@@ -13,6 +13,9 @@ dependencies = [
     "gymnasium>=1.0",
 ]
 
+[project.scripts]
+dsz = "dsz.cli:main"
+
 [project.optional-dependencies]
 # Embodied backend. robosuite and robocasa are installed from pinned git commits (see docker/).
 robocasa = ["mujoco==3.3.1"]
