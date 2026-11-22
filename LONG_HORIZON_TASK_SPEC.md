@@ -1,13 +1,6 @@
 # Long-Horizon Task Spec
 
-Version 1.4, 2026-11-22. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed. Your instructions are in `scenarios/AGENTS.md`.
-
-**How to use this file**
-
-| You are | Read |
-|---|---|
-| Author | All sections |
-| Reviewer | All sections. Give a verdict (pass, improve or discard). Cite a rule ID (P, MR, CR, OC) in each finding |
+Version 1.5, 2026-11-22. This file defines a valid Day Shift Zero task. If this file does not allow something, it is not allowed.
 
 **Contents**
 1. Terms
@@ -25,24 +18,24 @@ Each term has one meaning in this file.
 
 | Term | Meaning |
 |---|---|
-| Scenario | `scenario.yaml`, optional `plugins.py` and `DESIGN.md` |
+| Scenario | A folder with `scenario.yaml` (the definition) and `DESIGN.md` (the design and claims). It can also have `oracle.py` (section 6) |
 | Instance | The output of one seed and one horizon. It holds all random choices |
 | Horizon h | Number of simulated days. Day d is the same for every h ≥ d |
-| Certified set | Each pair (seed, h) with the seed in the frozen list Σ and h_min ≤ h ≤ h_max. The scenario sets h_min ≥ 2 |
+| Certified set | Each pair (seed, h) with the seed in the frozen list Σ and h_min ≤ h ≤ h_max. The scenario sets h_min ≥ 2 (`horizon.min_days`) and h_max (`horizon.days`) |
 | Work item | One unit of work with a deliver predicate and a deadline |
 | Slack | Time from the earliest start of a work item to its deadline, minus the oracle's time to do it |
 | State s_t | All item locations, item conditions, fixture states and batch identities at time t |
 | Observation o_t | The current view through open doors only, detections without global IDs, proprioception, clock and messages |
 | Embodied run | The policy gets o_t |
 | Symbolic run | The same instance, skills and failure rates. The policy gets s_t instead of the view |
-| Track | The action space a policy uses: skill level (skill calls) or low level (12-dim control at 20 Hz). `project.md` section 6 defines both |
+| Track | The action space a policy uses: skill level (skill calls) or low level (native 12-dim control at 20 Hz) |
 | Skill backend | How a skill runs: scripted (IK motion planning) or learned (a policy per atomic task) |
 | Recipe | The abstract steps that produce one work item, such as marinate → cook → pass. It names processes and stages, not items, times or skill calls |
 | Exogenous event | A change that the robot does not cause: relocate, consume, delivery, fault, door left open, goal change |
 | Cue | A change in o_t that shows an event or a failure. A clock time is not a cue |
 | Physical consequence | An object, a place and a body action: find, tell apart, open, check, carry, unload or recover |
 | Point of no return | The last time at which an action can still save the affected work item |
-| Claim | One row in `DESIGN.md` that states one difficulty |
+| Claim | One entry in the definition's `claims` that states one difficulty. `DESIGN.md` explains why it holds |
 | Hedge | A fixed plan, chosen before the run, that avoids a difficulty. Examples: never use a fixture; over-order; check a place at a fixed time each day |
 
 ## 2. Task definition
@@ -166,11 +159,11 @@ Each claim must meet every rule. A claim that fails a rule counts for no predica
 | CR14 | **Every horizon.** The claim is true for each h from h_min to h_max | C: all horizons |
 | CR15 | **Goal, not steps.** The objective, tickets and messages state the wanted outcome, never a sequence of skills. The robot chooses the steps | A: no skill sequence in the text |
 
-Until the verifier exists, the reviewer applies these checks by reading the files.
+The verifier (`dsz verify`) runs the checks that it supports. The reviewer applies the others by reading the files.
 
 ## 6. Oracle, controls and criteria
 
-**Oracle.** It runs on the evaluator side. It plans from the instance and ground truth. At each decision its next step is the advice for the oracle-plan ablation (`project.md` section 8).
+**Oracle.** It runs on the evaluator side. It plans from the instance and ground truth. At each decision its next step is the advice for the oracle-plan ablation.
 
 It has three reusable parts:
 
@@ -183,11 +176,11 @@ It has three reusable parts:
 | Scenario | Oracle | Written by |
 |---|---|---|
 | Built-in plugins only | The generic oracle | The platform, once for all scenarios |
-| Plugin processes that the recipe part cannot regress | The generic oracle plus a `recipe:` block in the definition | The oracle agent |
-| Plugin behaviour that needs its own handling | `scenarios/<id>/oracle.py`: a subclass that overrides only the scheduler or the goals | The oracle agent |
+| Plugin processes that the recipe part cannot regress | The generic oracle plus a `recipe:` block in the definition | An oracle author, after the definition is final |
+| Plugin behaviour that needs its own handling | `oracle.py` in the scenario folder: a subclass that overrides only the scheduler or the goals | An oracle author, after the definition is final |
 
 - Authors do not write an oracle, a recipe or a control.
-- The oracle agent starts after the definition is final. It works in the scenario loop (`project.md` section 5) against stage S4. After 3 failed rounds, reject the scenario.
+- If no oracle passes stage S4, reject the scenario.
 - If the generic oracle fails, the scenario needs scheduling. Reject it (section 3).
 
 **Oracle checks.** The verifier accepts an oracle only if CR10 holds and all of these are true:
@@ -224,18 +217,4 @@ Run the stages in order. Stop at the first stage that fails.
 
 ## 8. Platform limits
 
-These limits block some claims now. Do not claim what they block.
-
-| Limit | Blocks |
-|---|---|
-| Work items cannot require contents (for example "contains bread"). Messages can only forbid | Facts that select a filling |
-| Symbolic detections show the item type only. Condition, spoilage and temperature are not visible | Cues for spoilage and faults (CR4, CR11) |
-| `door_left_open` does not warm a fridge | Spoilage from an open door |
-| `grasp_fail_p` and `break_on_fail_p` cannot be set in a definition | Misgrasp recovery (CR12) |
-| Work templates cannot have their own subject lists | Per-template subjects |
-| The pass gives a box to the earliest-deadline ticket, not to its subject | Per-subject box checks |
-| Supplier orders take the lowest free pool ID, also IDs that a scheduled delivery needs | Mixing orders and scheduled deliveries (CR11) |
-| `DeliveryEvent` can crash when the fixture is full (reported, not reproduced) | Deliveries to a full fixture |
-| The import path for `plugins:` modules is not specified | Running plugins outside the repo root |
-| The generic oracle and the `recipe:` field are not built yet | Scenarios without their own `oracle.py` |
-
+The platform cannot yet do everything this file allows. The format reference (`FORMAT.md`) lists the current limits and what each one blocks. Do not claim a difficulty that a limit blocks.
