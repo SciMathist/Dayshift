@@ -18,12 +18,12 @@ Round 1 changes, by reviewer finding:
 |---|---|---|
 | 1 | Fridge fault has no sensor cue | Removed. Replaced by an observable drift: a co-worker leaves the only day-3 chicken on the pack counter |
 | 2 | Diet facts only forbid; several rows did not bind | Removed nut spread, the dairy and nut facts, the cheese and nut-spread relocations and the night consume. One fact stays: no gluten for the east wing. It binds: the default filling (bread) becomes forbidden, so the robot must fetch cheese from a fridge instead |
-| 3 | Chicken chain not shown feasible | Standing deliveries moved to day 2 and day 3, so no freezing is needed. Day-by-day chain below. A scripted oracle in `plugins.py` passes on seeds 0–19 |
+| 3 | Chicken chain not shown feasible | Standing deliveries moved to day 2 and day 3, so no freezing is needed. Day-by-day chain below. A scripted oracle in `oracle.py` passes on seeds 0–19 |
 | 4 | Seed-dependent claims | One subject (`east_wing`), so every box after the fact is constrained on every seed. The pack-counter trap fires at 09:50 on day 2, before any box ticket of that day, so it holds on every seed |
 | 5 | Raw and marinated chicken look the same | `fridge_back` is the marinade fridge. The marinated piece is the chicken in `fridge_back`. Memory of identity is no longer claimed |
 | 6 | Standing-delivery fact is weak for M1 | No longer an M1 claim. Relabelled as a scheduled exogenous delivery with a handling deadline |
 | 7 | Misgrasp cannot happen in symbolic runs | Marked "not exercised by S4" |
-| 8 | No oracle | Added `care_home_oracle` and two scenario controls in `plugins.py` |
+| 8 | No oracle | Added `care_home_oracle` and two scenario controls in `oracle.py` |
 | 9 | Order ids and dock overflow | The whole pool is 10 items, the dock capacity, so the dock cannot overflow. Orders beyond the free pool take ids from later standing deliveries (documented below) |
 | 10 | Constraint attaches to hot_lunch silently | Both tickets now name the east wing. Chicken has no gluten, so the constraint never changes the hot lunch |
 
@@ -138,9 +138,14 @@ Certification is per seed and horizon. This scenario needs at least 3 days:
 
 ## Verification
 
-S1–S2 (parse and compile): `OK` with the AGENTS.md command, run from `day_shift_zero/`. The command needs the current directory on `sys.path`, because `plugins:` names `scenarios.care_home_lunches.plugins`. `python -c` provides that. A script needs `PYTHONPATH=.`.
+The claims are also in `scenario.yaml`. `dsz verify scenarios/care_home_lunches` (2026-11-22):
 
-S4 is not available. As a stand-in, I ran each policy to the end of the horizon on the symbolic backend (pilot, not a benchmark result):
+- S1 and S2 pass.
+- S3 fails: claim M1 hides the cheese in `fridge_main` or the bread in `pantry`, and the objective names both (CR6, MR3). This matches the spec's own example: "No gluten, then fetch cheese from the fridge that the objective names" does not count. P2 has no valid claim.
+- S4 on its own (the scenario's `care_home_oracle`): passes for horizons 3 and 4.
+- With the generic oracle instead, `never_recover` passes on seeds 0–4. The generic oracle carries the delivered chicken into `fridge_back` at once, so the 09:50 move finds nothing. Claim C1 depends on the robot waiting to marinate: a hedge (CR8).
+
+Earlier hand run on the symbolic backend, before `dsz verify` existed (pilot, not a benchmark result):
 
 | Horizon | Seeds | Oracle | `noop` | `care_home_ignore_facts` | `care_home_no_recovery` |
 |---|---|---|---|---|---|
