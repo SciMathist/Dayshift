@@ -117,8 +117,7 @@ success:
     work_completion: {params: {min_on_time: 0.9}}
     no_violations: {}
     waste: {required: false, weight: 0.5}
-policies: {oracle: deli_oracle, controls: [noop]}
-plugins: [scenarios.deli.plugins]
+# policies: set only by the scenario's oracle.py until the generic oracle exists
 ```
 
 **Success** is a composite of `Criterion` plugins:
@@ -139,42 +138,40 @@ Guardrails for any scenario:
 - The cloud-kitchen objective above uses demand forecasting, stock reordering and margin, which are parametric (principle 7). Rewrite it before the scenario is certified.
 - Volume stays within what one robot can do at simulation speed.
 
-**Scenario authoring.** Agents and people write scenarios inside the repository, as with any coding agent. Three files share the work:
+**Scenario authoring.** Agents write scenarios in a sandbox, and people review them. How to run the loop: `authoring/README.md`.
 
-| File | Job | Reader |
+| Role | Sees | Produces |
 |---|---|---|
-| `LONG_HORIZON_TASK_SPEC.md` | Defines a valid task: properties, memory rules, claim rules, oracle, stages | Author and reviewer agents |
-| `day_shift_zero/scenarios/AGENTS.md` | The author's procedure | Author agent |
-| `project.md` (this file) | Explains the project | People |
-
-Each role gets only the context listed:
-
-| Role | Context | Output |
-|---|---|---|
-| Author | `AGENTS.md` and the task spec | `scenarios/<id>/` |
-| Verifier (`dsz verify`) | The scenario folder | `report.json` |
-| Reviewer | The task spec and the scenario folder | Verdict (pass, improve, discard) and findings with rule IDs |
-| Oracle agent | The task spec and the final folder | A `recipe:` block or `oracle.py`, only where the generic oracle cannot derive the recipe |
-| Orchestrator | — | Sends verifier and reviewer output to the author, and verifier output to the oracle agent, word for word |
+| Author agent | A sandbox outside the repository: the task spec, the format reference, the generated vocabulary and its own `scenario/` folder. It can run only `dsz verify` | `scenario.yaml` and `DESIGN.md` |
+| Verifier (`dsz verify`) | The scenario folder | A report with stage results and rule IDs. Deterministic, no LLM |
+| Reviewer agent | The same sandbox, read-only, plus the verify output and the author's report | A verdict (pass, improve or discard) and findings with rule IDs |
+| Loop (`authoring/loop.py`) | Everything the agents produce | Passes outputs on word for word. Copies a passed scenario to `day_shift_zero/scenarios/<id>/` |
 | Person | Everything | The merge decision |
 
 The loop:
-1. The author writes the scenario.
-2. The verifier and the reviewer check it.
-3. The orchestrator sends both outputs to the author.
-4. The author improves the scenario, or discards it and starts again with a new ID.
-5. Stop when both checks pass, or after 3 rounds (then discard).
-6. If the generic oracle cannot derive a recipe, the oracle agent fills the gap. The verifier checks the oracle at stage S4. Stop when it passes, or after 3 rounds (then discard the scenario).
-7. A passing scenario goes to human review as a pull request.
+1. The author writes the scenario and runs `dsz verify` until it passes.
+2. The loop runs `dsz verify` itself. If it passes, a fresh reviewer gives a verdict.
+3. The author gets both outputs and improves the scenario, or discards it and starts a new one.
+4. It stops on a passed verify plus a `pass` verdict, or after 3 rounds.
+5. A passed scenario goes to human review.
 
-Verifier contract:
-- `dsz verify <dir> [--tier fast|full] [--seeds N] [--horizon D] [--json PATH]`. `fast` runs stages S1–S4; `full` adds S5.
-- It writes `report.json`: stage results, rule or predicate IDs, evidence (seed, horizon, day, work item) and a fix hint.
-- Exit codes: 0 pass, 1 fail, 2 error. It is deterministic, read-only and contains no LLM.
+Why a sandbox:
+- The agents cannot copy or tune to other scenarios, the platform code or this document.
+- The agents cannot write code. A missing capability becomes a capability request in `DESIGN.md`.
+- One source per subject: the task spec holds the rules, `FORMAT.md` the definition format and the platform limits, and `dsz vocab` the vocabulary, generated from the registries.
+
+**Verifier.** `dsz verify <dir> [--seeds N] [--json PATH]`. Exit codes: 0 pass, 1 fail, 2 verifier error.
+
+| Built | Not built yet |
+|---|---|
+| S1 parse; S2 compile, ID and h_min rules, references on every pair, work due within the horizon (CR14); S3 kind-A checks on the `claims` block (CR1, CR2, CR5, CR6, MR1–MR3, C1, R1, P1–P4 coverage) and on the texts (CR15; CR5 notes); S4 V1 with the generic oracle and its derived controls, and OC2 | S4 H1, M1, R1, C1; S5 (E1); the hedge library (CR8); the `recipe:` block |
+
+S4 uses the generic oracle (`dsz.certify.oracle`) unless the scenario has its own `oracle.py`. Its controls are `noop`, `hidden_state_blind`, `never_recover` and `memoryless`, each the oracle with one part swapped.
 
 Open items:
-- the `difficulty:` schema for automatic claim checks;
-- the `certify` package, the generic oracle, the derived controls and the hedge library;
+- the hedge library (CR8) and the `recipe:` block;
+- a sensing belief for the oracle (CR10: it now reads ground truth);
+- the H1, M1, R1 and C1 checks;
 - E1 measurement and the reference agents;
 - frozen thresholds and seed list;
 - the CI path check for scenario pull requests.
@@ -233,7 +230,7 @@ day_shift_zero/
   docker/                 # pinned images (arm64 and amd64); assets mounted, not baked in
   configs/                # run configs; thresholds unset until pilots
   scenarios/              # task definitions only, no platform code
-    cloud_kitchen/        # scenario.yaml, hooks.py, oracle.py
+    cloud_kitchen/        # scenario.yaml, DESIGN.md, optional oracle.py
     wedding_cake/
   src/dsz/
     core/                 # interfaces only: SimBackend, Scenario, Policy, ActionSpace, Clock, RngStreams
@@ -242,7 +239,7 @@ day_shift_zero/
     actors/               # actor types and channels
     events/               # event types and engine
     scenario/             # loader, compiler (checks against the manifest), generator runtime
-    certify/              # instance checks (section 7)
+    certify/              # verifier (`dsz verify`), oracle parts, instance checks (section 7)
     skills/               # one class per skill (Command pattern) + registry
     sim/
       robocasa/           # embodied backend: pinned scene, object pool, render-on-decision
@@ -252,6 +249,7 @@ day_shift_zero/
     eval/                 # metrics, ablation runner, negative-control policies
     trace/                # trace writer and failure labeler
   tests/
+authoring/                # scenario loop: agent briefs, sandbox guard, loop script
 clients/
   dsz_client/             # API client + model adapters (section 6)
 spike/                    # throwaway experiments, never imported by src/
